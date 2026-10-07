@@ -78,6 +78,69 @@ def test_garbled_gatekeeper_result_does_not_interrupt_reply(tmp_path: Path) -> N
     assert store.list_voice_notes() == []
 
 
+def test_post_chat_includes_ooc_details_after_rewrite(tmp_path: Path) -> None:
+    config, store, books = make_parts(tmp_path)
+    llm = SequenceLLM(
+        [
+            "我好想你！",
+            json.dumps(
+                {
+                    "verdict": "ooc",
+                    "reason": "他不会说得这么直白",
+                    "rewritten": "……今天怎么没来。",
+                },
+                ensure_ascii=False,
+            ),
+            "流入模型乱码",
+        ]
+    )
+    app = create_app(config, store=store, llm=llm, worldbook=books)
+
+    with TestClient(app) as client:
+        response = client.post("/chat", json={"content": "你想我吗"})
+        history = client.get("/messages")
+
+    assert response.status_code == 200
+    assert response.json()["reply"] == "……今天怎么没来。"
+    assert response.json()["ooc_rewritten"] is True
+    assert response.json()["ooc"] == {
+        "original": "我好想你！",
+        "reason": "他不会说得这么直白",
+        "voice_note_id": 1,
+    }
+    assert history.status_code == 200
+    assert history.json()[-1]["ooc"] == {
+        "original": "我好想你！",
+        "reason": "他不会说得这么直白",
+        "rewritten": "……今天怎么没来。",
+        "voice_note_id": 1,
+        "source": "gatekeeper",
+    }
+
+
+def test_in_character_reply_has_no_ooc_marker(tmp_path: Path) -> None:
+    config, store, books = make_parts(tmp_path)
+    llm = SequenceLLM(
+        [
+            "先坐下。",
+            '{"verdict":"in_character","reason":"","rewritten":""}',
+            "流入模型乱码",
+        ]
+    )
+    app = create_app(config, store=store, llm=llm, worldbook=books)
+
+    with TestClient(app) as client:
+        response = client.post("/chat", json={"content": "你好"})
+        history = client.get("/messages")
+
+    assert response.status_code == 200
+    assert response.json()["ooc_rewritten"] is False
+    assert response.json()["ooc"] is None
+    assert history.status_code == 200
+    assert history.json()[-1]["ooc"] is None
+    assert store.list_voice_notes() == []
+
+
 def test_player_flag_and_voice_note_endpoints(tmp_path: Path) -> None:
     config, store, books = make_parts(tmp_path)
     session_id = store.create_session()

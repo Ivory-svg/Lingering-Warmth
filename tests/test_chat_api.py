@@ -83,6 +83,7 @@ def test_post_chat_returns_documented_response(tmp_path: Path) -> None:
         "reply": "先去吃点东西。",
         "session_id": 1,
         "ooc_rewritten": False,
+        "ooc": None,
         "handoff_happened": False,
     }
 
@@ -96,3 +97,70 @@ def test_post_chat_rejects_blank_message(tmp_path: Path) -> None:
 
     assert response.status_code == 422
     assert response.json()["detail"] == "消息内容不能为空"
+
+
+def test_get_messages_restores_current_session_with_latest_voice_note(tmp_path: Path) -> None:
+    config, store, books = make_parts(tmp_path)
+    old_session_id = store.create_session()
+    store.add_message(old_session_id, "user", "旧窗口的话")
+    store.close_session(old_session_id)
+    session_id = store.create_session()
+    store.add_message(session_id, "event", "预留事件")
+    user_id = store.add_message(
+        session_id, "user", "你好", created_at="2026-10-07T10:00:00+08:00"
+    )
+    assistant_id = store.add_message(
+        session_id, "assistant", "今天怎么没来。", created_at="2026-10-07T10:01:00+08:00"
+    )
+    store.add_voice_note(
+        source="gatekeeper",
+        message_id=assistant_id,
+        original="我好想你！",
+        rewritten="今天怎么没来。",
+        reason="太直白",
+    )
+    latest_note_id = store.add_voice_note(
+        source="player",
+        message_id=assistant_id,
+        original="今天怎么没来。",
+        rewritten="……回来了？",
+        reason="玩家觉得这句仍不合适",
+    )
+    plain_id = store.add_message(
+        session_id, "assistant", "先坐下。", created_at="2026-10-07T10:02:00+08:00"
+    )
+    app = create_app(config, store=store, llm=FakeLLM(), worldbook=books)
+
+    with TestClient(app) as client:
+        response = client.get("/messages")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "message_id": user_id,
+            "role": "user",
+            "content": "你好",
+            "created_at": "2026-10-07T10:00:00+08:00",
+            "ooc": None,
+        },
+        {
+            "message_id": assistant_id,
+            "role": "assistant",
+            "content": "今天怎么没来。",
+            "created_at": "2026-10-07T10:01:00+08:00",
+            "ooc": {
+                "original": "今天怎么没来。",
+                "reason": "玩家觉得这句仍不合适",
+                "rewritten": "……回来了？",
+                "voice_note_id": latest_note_id,
+                "source": "player",
+            },
+        },
+        {
+            "message_id": plain_id,
+            "role": "assistant",
+            "content": "先坐下。",
+            "created_at": "2026-10-07T10:02:00+08:00",
+            "ooc": None,
+        },
+    ]

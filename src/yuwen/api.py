@@ -26,12 +26,32 @@ class ChatRequest(BaseModel):
     content: str
 
 
+class ChatOOC(BaseModel):
+    original: str
+    reason: str
+    voice_note_id: int
+
+
 class ChatResponse(BaseModel):
     message_id: int
     reply: str
     session_id: int
     ooc_rewritten: bool
+    ooc: ChatOOC | None
     handoff_happened: bool
+
+
+class MessageOOC(ChatOOC):
+    rewritten: str
+    source: str
+
+
+class MessageResponse(BaseModel):
+    message_id: int
+    role: str
+    content: str
+    created_at: str
+    ooc: MessageOOC | None = None
 
 
 class OOCFlagRequest(BaseModel):
@@ -118,6 +138,42 @@ def create_app(
             result.message_id,
         )
         return result.as_dict()
+
+    @app.get("/messages", response_model=list[MessageResponse])
+    async def get_messages() -> list[dict[str, object]]:
+        session = database.get_active_session()
+        if session is None:
+            return []
+        notes_by_message: dict[int, dict[str, object]] = {}
+        for note in database.list_voice_notes():
+            message_id = note["message_id"]
+            if message_id is not None:
+                notes_by_message.setdefault(int(message_id), note)
+
+        result: list[dict[str, object]] = []
+        for message in database.list_messages(int(session["id"])):
+            if message["role"] == "event":
+                continue
+            note = notes_by_message.get(int(message["id"]))
+            ooc = None
+            if note is not None:
+                ooc = {
+                    "original": note["original"],
+                    "reason": note["reason"],
+                    "rewritten": note["rewritten"],
+                    "voice_note_id": note["id"],
+                    "source": note["source"],
+                }
+            result.append(
+                {
+                    "message_id": message["id"],
+                    "role": message["role"],
+                    "content": message["content"],
+                    "created_at": message["created_at"],
+                    "ooc": ooc,
+                }
+            )
+        return result
 
     @app.post("/ooc/flag", response_model=OOCFlagResponse)
     async def flag_ooc(request: OOCFlagRequest) -> dict[str, object]:
