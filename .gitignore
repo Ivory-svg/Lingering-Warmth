@@ -1,0 +1,12 @@
+# 玩家自己的东西，永远不进仓库
+worldbook/
+data/
+config.toml
+*.db
+*.db-*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
