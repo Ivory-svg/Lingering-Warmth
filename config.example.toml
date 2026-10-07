@@ -1,0 +1,26 @@
+[llm]
+base_url = "https://api.example.com/v1"
+api_key = "请替换为你的 API Key"
+model = "请替换为模型名"
+# 留空时使用 model。
+small_model = ""
+context_limit = 64000
+
+[character]
+prompt_file = "worldbook/character.md"
+worldbook_dir = "worldbook"
+
+[handoff]
+trigger_ratio = 0.75
+raw_tail = 20
+
+[gatekeeper]
+pre_send = true
+voice_notes_in_context = 10
+
+[storage]
+db_path = "data/yuwen.db"
+
+[server]
+host = "127.0.0.1"
+port = 8787

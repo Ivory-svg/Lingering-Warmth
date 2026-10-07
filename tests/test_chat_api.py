@@ -1,0 +1,98 @@
+import asyncio
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from yuwen.api import create_app
+from yuwen.chat import ChatService
+from yuwen.config import (
+    AppConfig,
+    CharacterConfig,
+    GatekeeperConfig,
+    HandoffConfig,
+    LLMConfig,
+    ServerConfig,
+    StorageConfig,
+)
+from yuwen.context import ContextBuilder
+from yuwen.store import Store
+from yuwen.worldbook import WorldbookReader
+
+
+class FakeLLM:
+    def __init__(self, reply: str = "先去吃点东西。"):
+        self.reply = reply
+        self.calls: list[list[dict[str, str]]] = []
+
+    async def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        small: bool = False,
+        json_response: bool = False,
+    ) -> str:
+        self.calls.append(messages)
+        return self.reply
+
+
+def make_parts(tmp_path: Path) -> tuple[AppConfig, Store, WorldbookReader]:
+    prompt = tmp_path / "character.md"
+    prompt.write_text("你是一个嘴硬心软的人。", encoding="utf-8")
+    config = AppConfig(
+        llm=LLMConfig("https://example.test/v1", "key", "model", "small"),
+        character=CharacterConfig(prompt, tmp_path / "worldbook"),
+        handoff=HandoffConfig(),
+        gatekeeper=GatekeeperConfig(),
+        storage=StorageConfig(tmp_path / "data.db"),
+        server=ServerConfig(),
+        config_path=tmp_path / "config.toml",
+    )
+    store = Store(config.storage.db_path)
+    store.initialize()
+    return config, store, WorldbookReader(config.character)
+
+
+def test_chat_service_runs_one_basic_turn(tmp_path: Path) -> None:
+    _, store, books = make_parts(tmp_path)
+    llm = FakeLLM()
+    service = ChatService(store, ContextBuilder(store, books), llm)
+
+    result = asyncio.run(service.handle_message("今天好累"))
+
+    assert result.reply == "先去吃点东西。"
+    assert not result.ooc_rewritten
+    assert not result.handoff_happened
+    rows = store.list_messages(result.session_id)
+    assert [(row["role"], row["content"]) for row in rows] == [
+        ("user", "今天好累"),
+        ("assistant", "先去吃点东西。"),
+    ]
+    assert llm.calls[0][-1] == {"role": "user", "content": "今天好累"}
+
+
+def test_post_chat_returns_documented_response(tmp_path: Path) -> None:
+    config, store, books = make_parts(tmp_path)
+    app = create_app(config, store=store, llm=FakeLLM(), worldbook=books)
+
+    with TestClient(app) as client:
+        response = client.post("/chat", json={"content": "今天好累"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "message_id": 2,
+        "reply": "先去吃点东西。",
+        "session_id": 1,
+        "ooc_rewritten": False,
+        "handoff_happened": False,
+    }
+
+
+def test_post_chat_rejects_blank_message(tmp_path: Path) -> None:
+    config, store, books = make_parts(tmp_path)
+    app = create_app(config, store=store, llm=FakeLLM(), worldbook=books)
+
+    with TestClient(app) as client:
+        response = client.post("/chat", json={"content": "   "})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "消息内容不能为空"

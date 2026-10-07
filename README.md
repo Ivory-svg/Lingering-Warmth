@@ -45,4 +45,27 @@ AI 会失忆，是因为它只有当下、没有时间。余温给 AI 一块不�
 
 ## 状态
 
-设计与框架阶段，参考实现正在写。
+第一档（M1）参考实现已经可用，包含世界书、流入、交接、OOC 守门人、完整导出和最简网页。
+
+## 运行参考实现
+
+需要 Python 3.11+ 和一个 OpenAI 兼容 API。配置与数据只保存在本机，不要把真实 API Key、世界书或数据库提交到仓库。
+
+```bash
+uv sync --extra test
+cp config.example.toml config.toml
+mkdir -p worldbook
+cp examples/worldbook.example.md worldbook/character.md
+```
+
+编辑 `config.toml` 中的 `base_url`、`api_key` 和模型名，然后启动：
+
+```bash
+uv run yuwen
+```
+
+打开 `http://127.0.0.1:8787` 聊天。完整测试使用假的模型响应，不会调用真实 API：
+
+```bash
+uv run pytest
+```
