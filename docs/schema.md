@@ -103,6 +103,12 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | rewritten | TEXT NOT NULL | 改后的句子 |
 | reason | TEXT NOT NULL | 为什么不像他 |
 | active | INTEGER NOT NULL DEFAULT 1 | 玩家可以停用某条 |
+| overturned_at | TEXT | 玩家说“其实他会这么说”的时间；为空表示没被推翻（迁移 002 新增） |
+| overturn_note | TEXT | 玩家推翻时留的话，可空（迁移 002 新增） |
+
+**守门人看走眼的记录**：`source = gatekeeper` 且 `overturned_at` 不为空的语感笔记，就是守门人判错的例子。以后调守门人的 prompt 时拿来对照，不单独建表。
+
+**推翻后原话怎么办**：`messages.content` 仍然不改。推翻时在这条消息的 `meta` 里记 `{"restored": true, "voice_note_id": 12}`；拼上下文和 `GET /messages` 时，遇到 `restored` 就改用这条语感笔记的 `original`。这样“原话永不改写”的规则不破，推翻也随时可以追溯。
 
 ---
 
