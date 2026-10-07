@@ -85,6 +85,34 @@
 
 列出语感笔记；`PATCH` 只允许改 `active`。
 
+### `POST /voice-notes/{id}/overturn`
+
+玩家点开小标记，觉得守门人看走眼了：“其实他会这么说”。
+
+请求：
+
+```json
+{ "note": "他就是会这么直接，这是他因为你变的" }
+```
+
+`note` 可空。
+
+做三件事：
+
+1. 这条语感笔记设 `active = 0`，并写上 `overturned_at`、`overturn_note`
+2. 如果是守门人改写的（`source = gatekeeper`），这条回复恢复成原句：在消息 `meta` 里记 `restored`，见 [schema.md](schema.md)
+3. 返回恢复后要显示的内容
+
+响应：
+
+```json
+{ "message_id": 128, "content": "我好想你！", "restored": true }
+```
+
+- 玩家标记产生的笔记（`source = player`）被推翻时，只停用笔记，回复本来就没改过，`restored` 为 false
+- 已经推翻过的再推翻，直接返回当前状态，不报错
+- 推翻后小标记消失，这条回复看起来和普通回复一样
+
 ### `GET /export`
 
 完整导出：所有表的所有行，一个 JSON 文件。世界书文件不在数据库里，不导出。
