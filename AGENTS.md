@@ -1,6 +1,6 @@
 # 给实作者的说明
 
-你要写的是余温第一档（M1）的参考实现。动手之前按顺序读：
+M1 已经完成。现在要做的是 [docs/roadmap.md](docs/roadmap.md) 里还没勾的 M1.1、M1.2，按清单顺序做。动手之前按顺序读：
 
 1. [docs/design.md](docs/design.md)：为什么这样做
 2. [docs/architecture.md](docs/architecture.md)：模块、流程、目录、配置
@@ -28,7 +28,7 @@
 ## 怎么算做完
 
 - `pytest` 全部通过
-- 用 `examples/worldbook.example.md` 和任意一个 OpenAI 兼容 API，能从网页聊天
+- 用 `examples/worldbook/` 和任意一个 OpenAI 兼容 API，能从网页聊天
 - 把 `handoff.trigger_ratio` 调得很低，能看到交接发生，新窗口里他还接得上话
 - 流入、守门人的模型返回乱码时，对话不中断（有测试覆盖）
 - `GET /export` 导出的 JSON 能看到所有表

@@ -150,23 +150,58 @@
 
 ### worldbook
 
-| 能力 | 说明 |
-|---|---|
-| 读取 | 读 `character.prompt_file` 和 `worldbook_dir` 下所有 `.md`，按文件名排序拼起来 |
-| 缓存 | 文件修改时间变了才重读 |
+世界书目录结构（见 design.md「世界书拆成三份」）：
+
+```
+worldbook/
+├── core.md          # 核心，每轮都带
+├── corpus.md        # 语料，一行一句，空行和 # 开头的行忽略
+├── daily.md         # 日常作息（可选，第三档用）
+└── entries/         # 词条，一件事一个 .md
+    └── 父亲.md
+```
+
+词条文件开头用 front matter 写关键词：
+
+```markdown
+---
+keys: 爸爸, 父亲, 钟表店
+priority: 5
+---
+他父亲是钟表匠，在他十九岁时去世……
+```
+
+- `keys`：逗号分隔，中英文逗号都认。必填，没写 keys 的词条不会被带入，并在启动日志里提醒
+- `priority`：整数，默认 0，越大越先带
+- 不用引入 YAML 库，只解析这两个字段
+
+| 能力 | 输入 | 输出 |
+|---|---|---|
+| 核心 | — | `core.md` 全文。文件不存在时报错，启动失败 |
+| 匹配词条 | 最近 `worldbook.scan_depth` 条原话（默认 4，玩家和他的都算） | 命中的词条，按 priority 从高到低；总字数不超过 `worldbook.entry_budget`（默认 3000），超出的丢掉低优先级的 |
+| 抽语料 | — | 随机 `worldbook.corpus_sample` 句（默认 8）；语料不够就全给 |
+| 缓存 | 文件修改时间变了才重读 | |
+
+匹配规则：关键词在原话里出现就算命中，大小写不敏感，不分词。
 
 没有写入能力。
+
+**旧格式兼容**：如果 `worldbook/` 下没有 `core.md`，但有 `character.prompt_file` 指向的文件（例如旧的 `character.md`），就把它当核心；`worldbook/` 根目录下其他没有 front matter 的 `.md` 每轮都带，并在启动日志里建议拆成词条。
 
 ### context
 
 输入：当前 session。输出：发给模型的 messages 列表。拼接顺序：
 
-1. system：角色 prompt + 世界书
-2. system：语感笔记（最近 K 条 active 的），格式“原来想说：…… / 他会说：…… / 因为：……”
-3. system：交接摘要（如果本 session 接续了交接）
-4. 上一窗最后 N 条原话（如果有交接）
-5. 本 session 的所有原话
-6. 第二档起：浮现的记忆插在 3 和 4 之间
+1. system：世界书核心
+2. system：命中的词条（没有就跳过），每条前面标上词条名
+3. system：抽到的语料，前面写一句“参考这些句子的感觉，用他的方式说新的话，不要原句复述”（没有语料就跳过）
+4. system：语感笔记（最近 K 条 active 的），格式“原来想说：…… / 他会说：…… / 因为：……”
+5. system：交接摘要（如果本 session 接续了交接）
+6. 上一窗最后 N 条原话（如果有交接）
+7. 本 session 的所有原话
+8. 第二档起：浮现的记忆插在 5 和 6 之间
+
+匹配词条用的“最近几句”，包含玩家刚发的这一句。
 
 ### inflow（流入）
 
@@ -175,6 +210,7 @@
 | 做什么 | 用 [prompts/inflow.md](prompts/inflow.md) 调小模型，得到 JSON，写一条 `kind=turn` 的记忆 |
 | 降级 | JSON 解析失败时：summary 存原话前 100 字，emotion_text 存“未标注”，certainty 0.5 |
 | 时机 | 回复发出后在后台跑，不阻塞玩家 |
+| 攒几轮 | `inflow.every_n_turns`（默认 1）。设成 N 时，每攒满 N 轮才调一次小模型，把这 N 轮总结成一条记忆，`source_message_ids` 包含这 N 轮的所有原话。交接前没攒满的也要先总结掉，不能丢 |
 
 小模型返回格式：
 
@@ -193,7 +229,7 @@
 
 | 能力 | 说明 |
 |---|---|
-| 是否需要交接 | 拼好的上下文 token 估算 ≥ `context_limit × trigger_ratio` |
+| 是否需要交接 | 拼好的上下文 token 估算 ≥ `context_limit × trigger_ratio`，**并且**本 session 里玩家已经发了至少 `handoff.min_turns`（默认 6）句。第一个窗口不受这个限制 |
 | 写交接 | 用 [prompts/handoff.md](prompts/handoff.md) 让**对话模型本身**（不是小模型）写，因为语气要是他的 |
 | 落库 | 存 handoffs；写一条 `kind=handoff` 的记忆；关闭旧 session；开新 session |
 | 带入 | 由 context 负责，见上 |
@@ -210,7 +246,7 @@
 
 ### gatekeeper（OOC 守门人）
 
-| 输入 | 一句回复 + 世界书 + 重铸层变化（第一档为空）+ 最近几句上下文 |
+| 输入 | 一句回复 + 世界书核心和本轮命中的词条（不带语料）+ 重铸层变化（第一档为空）+ 最近几句上下文 |
 |---|---|
 | 输出 | verdict、reason、rewritten |
 | 用小模型 | 是 |
@@ -236,6 +272,34 @@
 
 读所有表，按上面格式输出。不做任何过滤，封存的也导出（那是玩家自己的东西）。
 
+**Markdown 导出**（`GET /export?format=markdown`）：给人读的版本，一个 `.md` 文件。
+
+```markdown
+# 余温导出 · 2026-10-07
+
+## 对话
+
+### 窗口 7 · 2026-10-07 20:15 起
+**你** 20:15
+今天好累
+
+**他** 20:15
+……吃饭了没。
+
+—— 接续上一段对话 ——
+
+## 记忆
+- 2026-10-07 20:15 · 疲惫，被关心后放松了一点 · 她说今天加班很累，他让她先去吃饭（确定度 0.9）
+
+## 交接
+## 语感笔记
+```
+
+- 称呼用 `character.name` 和 `character.player_name`
+- 被推翻（`restored`）的回复显示原句
+- 不导出 embedding
+- 网页的“导出全部记忆”给两个选项：给人看的（Markdown）、给程序搬家的（JSON）
+
 ---
 
 ## 预留接口（不在第一档实作，只是先占位）
@@ -247,3 +311,4 @@
 | `POST /memories/{id}/seal` | “这个忘掉吧” | 二 |
 | `GET /wake/pending` | 前端轮询唤醒消息（或改成 WebSocket 推送） | 三 |
 | TTS | 只定义 `text → 音频 URL` 一个接口，不自带实现 | 以后 |
+| 生图 / 生视频 | 只定义 `描述 + 参考图 → 图片或视频 URL` 一个接口，不自带实现；报备用 | 以后 |

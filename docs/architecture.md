@@ -29,7 +29,7 @@ lingering-warmth/
 ├── config.example.toml        # 配置示例，玩家复制成 config.toml
 ├── worldbook/                 # 玩家自己的世界书（.gitignore，不进仓库）
 ├── examples/
-│   └── worldbook.example.md   # 示例世界书
+│   └── worldbook/             # 示例世界书：core.md、corpus.md、daily.md、entries/
 ├── data/                      # SQLite 数据库（.gitignore）
 ├── src/yuwen/
 │   ├── config.py              # 读 config.toml
@@ -112,10 +112,17 @@ api → export → store
 | `llm.model` | — | 对话模型 |
 | `llm.small_model` | 同 `llm.model` | 流入、守门人用的小模型，省钱 |
 | `llm.context_limit` | 64000 | 模型上下文上限（token） |
-| `character.prompt_file` | `worldbook/character.md` | 角色 prompt |
-| `character.worldbook_dir` | `worldbook/` | 世界书目录，里面所有 .md 都读 |
+| `character.name` | `他` | 角色名，用在守门人、流入的 prompt 和 Markdown 导出里 |
+| `character.player_name` | `你` | 他怎么称呼玩家 |
+| `character.prompt_file` | `worldbook/core.md` | 世界书核心（旧配置指向 `character.md` 也认） |
+| `character.worldbook_dir` | `worldbook/` | 世界书目录，结构见 interfaces.md |
+| `worldbook.scan_depth` | 4 | 匹配词条时看最近几条原话 |
+| `worldbook.entry_budget` | 3000 | 每轮带入词条的总字数上限 |
+| `worldbook.corpus_sample` | 8 | 每轮抽几句语料 |
 | `handoff.trigger_ratio` | 0.75 | 用到上限的多少开始交接 |
 | `handoff.raw_tail` | 20 | 新窗口带上一窗多少条原话 |
+| `handoff.min_turns` | 6 | 换窗后玩家至少说几句，才允许再交接 |
+| `inflow.every_n_turns` | 1 | 每几轮总结一次记忆；调大省钱 |
 | `gatekeeper.pre_send` | true | 发出前是否自查 |
 | `gatekeeper.voice_notes_in_context` | 10 | 拼上下文时带几条语感笔记 |
 | `storage.db_path` | `data/yuwen.db` | |

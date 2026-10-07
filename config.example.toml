@@ -7,7 +7,7 @@ small_model = ""
 context_limit = 64000
 
 [character]
-prompt_file = "worldbook/character.md"
+prompt_file = "worldbook/core.md"
 worldbook_dir = "worldbook"
 
 [handoff]
