@@ -229,7 +229,7 @@ priority: 5
 
 | 能力 | 说明 |
 |---|---|
-| 是否需要交接 | 拼好的上下文 token 估算 ≥ `context_limit × trigger_ratio`，**并且**本 session 里玩家已经发了至少 `handoff.min_turns`（默认 6）句。第一个窗口不受这个限制 |
+| 是否需要交接 | 拼好的上下文 token 估算 ≥ `context_limit × trigger_ratio`，**并且**本 session 里玩家已经发了至少 `handoff.min_turns`（默认 20）句。第一个窗口不受这个限制 |
 | 写交接 | 用 [prompts/handoff.md](prompts/handoff.md) 让**对话模型本身**（不是小模型）写，因为语气要是他的 |
 | 落库 | 存 handoffs；写一条 `kind=handoff` 的记忆；关闭旧 session；开新 session |
 | 带入 | 由 context 负责，见上 |

@@ -121,7 +121,7 @@ api → export → store
 | `worldbook.corpus_sample` | 8 | 每轮抽几句语料 |
 | `handoff.trigger_ratio` | 0.75 | 用到上限的多少开始交接 |
 | `handoff.raw_tail` | 20 | 新窗口带上一窗多少条原话 |
-| `handoff.min_turns` | 6 | 换窗后玩家至少说几句，才允许再交接 |
+| `handoff.min_turns` | 20 | 换窗后玩家至少说几句，才允许再交接。只是防止连续换窗的保险，正常要几百句才会换一次窗 |
 | `inflow.every_n_turns` | 1 | 每几轮总结一次记忆；调大省钱 |
 | `gatekeeper.pre_send` | true | 发出前是否自查 |
 | `gatekeeper.voice_notes_in_context` | 10 | 拼上下文时带几条语感笔记 |
