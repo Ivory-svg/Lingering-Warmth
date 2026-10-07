@@ -28,6 +28,7 @@ class ChatResult:
     reply: str
     session_id: int
     ooc_rewritten: bool = False
+    ooc: dict[str, str | int] | None = None
     handoff_happened: bool = False
 
     def as_dict(self) -> dict[str, object]:
@@ -90,8 +91,9 @@ class ChatService:
             reply,
             meta={"ooc_rewritten": ooc_rewritten},
         )
-        if ooc_rewritten and gatekeeper_result is not None:
-            note_id = self.gatekeeper.save_note(  # type: ignore[union-attr]
+        ooc: dict[str, str | int] | None = None
+        if ooc_rewritten and gatekeeper_result is not None and self.gatekeeper is not None:
+            note_id = self.gatekeeper.save_note(
                 source="gatekeeper",
                 message_id=message_id,
                 original=original_reply,
@@ -102,11 +104,17 @@ class ChatService:
                 message_id,
                 {"ooc_rewritten": True, "voice_note_id": note_id},
             )
+            ooc = {
+                "original": original_reply,
+                "reason": gatekeeper_result.reason,
+                "voice_note_id": note_id,
+            }
         return ChatResult(
             user_message_id=user_message_id,
             message_id=message_id,
             reply=reply,
             session_id=session_id,
             ooc_rewritten=ooc_rewritten,
+            ooc=ooc,
             handoff_happened=handoff_happened,
         )

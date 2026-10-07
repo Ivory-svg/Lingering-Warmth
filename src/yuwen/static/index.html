@@ -16,8 +16,15 @@
     .message { max-width: 78%; padding: 11px 14px; border-radius: 16px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
     .user { align-self: flex-end; background: #6c5544; color: white; border-bottom-right-radius: 4px; }
     .assistant { align-self: flex-start; background: #f0e8df; border-bottom-left-radius: 4px; }
-    .message button { display: block; margin-top: 8px; padding: 0; border: 0; background: none; color: #806b5a; cursor: pointer; font-size: 12px; }
-    .message small { display: block; margin-top: 8px; color: #705e50; }
+    .assistant.has-ooc { position: relative; padding-right: 26px; }
+    .ooc-mark { position: absolute; top: 8px; right: 8px; width: 9px; height: 9px; padding: 0; border: 0; border-radius: 50%; background: #ad9b8c; cursor: pointer; }
+    .ooc-mark:hover, .ooc-mark:focus-visible { background: #6c5544; outline-offset: 3px; }
+    .ooc-details { margin-top: 10px; padding-top: 9px; border-top: 1px solid #ddd0c4; color: #705e50; font-size: 12px; white-space: pre-wrap; }
+    .ooc-details[hidden] { display: none; }
+    .message-menu { position: fixed; z-index: 10; padding: 5px; border: 1px solid #ddd0c4; border-radius: 10px; background: #fffdfa; box-shadow: 0 6px 20px #352f2b20; }
+    .message-menu[hidden] { display: none; }
+    .message-menu button { border: 0; border-radius: 6px; padding: 8px 12px; background: none; color: #554638; font: inherit; cursor: pointer; }
+    .message-menu button:hover { background: #f0e8df; }
     .handoff { display: flex; align-items: center; gap: 10px; color: #a09287; font-size: 12px; }
     .handoff::before, .handoff::after { content: ""; height: 1px; background: #ddd0c4; flex: 1; }
     form { padding: 16px; border-top: 1px solid #e8ded3; display: flex; gap: 10px; }
@@ -25,12 +32,14 @@
     form button { border: 0; border-radius: 12px; padding: 0 20px; background: #6c5544; color: white; cursor: pointer; }
     form button:disabled { opacity: .55; cursor: wait; }
     #error { color: #a33; padding: 0 16px 8px; font-size: 13px; }
+    #error[data-kind="info"] { color: #705e50; }
   </style>
 </head>
 <body>
   <main>
     <header><h1>余温</h1><a href="/export">导出全部记忆</a></header>
     <section id="messages" aria-live="polite"><p class="empty">人走了，温度还在。</p></section>
+    <div id="message-menu" class="message-menu" role="menu" hidden><button id="flag-ooc" type="button" role="menuitem">他不会这么说</button></div>
     <div><div id="error" role="alert"></div><form id="chat-form"><textarea id="content" rows="1" placeholder="说点什么……" required></textarea><button id="send" type="submit">发送</button></form></div>
   </main>
   <script>
@@ -39,6 +48,85 @@
     const input = document.querySelector('#content');
     const send = document.querySelector('#send');
     const errorBox = document.querySelector('#error');
+    const menu = document.querySelector('#message-menu');
+    const flagOption = document.querySelector('#flag-ooc');
+    let selectedMessage = null;
+
+    function hideMenu() {
+      menu.hidden = true;
+      selectedMessage = null;
+    }
+    function showMenu(item, messageId, x, y) {
+      selectedMessage = {item, messageId};
+      menu.hidden = false;
+      const bounds = menu.getBoundingClientRect();
+      menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8))}px`;
+      menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8))}px`;
+      flagOption.focus();
+    }
+    document.addEventListener('click', (event) => {
+      if (!menu.contains(event.target) && !event.target.closest('.message.assistant')) hideMenu();
+    });
+    window.addEventListener('scroll', hideMenu, true);
+
+    function showOOCMarker(item, ooc) {
+      if (!ooc) return;
+      let mark = item.querySelector('.ooc-mark');
+      let details = item.querySelector('.ooc-details');
+      if (!mark) {
+        item.classList.add('has-ooc');
+        mark = document.createElement('button');
+        mark.type = 'button';
+        mark.className = 'ooc-mark';
+        mark.setAttribute('aria-label', '查看语感笔记');
+        mark.setAttribute('aria-expanded', 'false');
+        details = document.createElement('div');
+        details.className = 'ooc-details';
+        details.hidden = true;
+        mark.addEventListener('click', (event) => {
+          event.stopPropagation();
+          details.hidden = !details.hidden;
+          mark.setAttribute('aria-expanded', String(!details.hidden));
+        });
+        item.append(mark, details);
+      }
+      details.textContent = `原本想说：${ooc.original}\n因为：${ooc.reason}`;
+      if (ooc.source === 'player' && ooc.rewritten) {
+        details.textContent += `\n建议改成：${ooc.rewritten}`;
+      }
+    }
+
+    flagOption.addEventListener('click', async () => {
+      if (!selectedMessage) return;
+      const {item, messageId} = selectedMessage;
+      hideMenu();
+      flagOption.disabled = true;
+      try {
+        const response = await fetch('/ooc/flag', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({message_id: messageId, player_rewrite: null})
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || '标记失败');
+        if (data.voice_note_id !== null) {
+          showOOCMarker(item, {
+            original: item.querySelector('.message-text').textContent,
+            reason: data.reason,
+            rewritten: data.rewritten,
+            voice_note_id: data.voice_note_id,
+            source: 'player'
+          });
+        } else {
+          errorBox.dataset.kind = 'info';
+          errorBox.textContent = data.reason;
+        }
+      } catch (error) {
+        errorBox.dataset.kind = 'error';
+        errorBox.textContent = error.message;
+      } finally {
+        flagOption.disabled = false;
+      }
+    });
 
     function clearEmpty() { document.querySelector('.empty')?.remove(); }
     function addDivider() {
@@ -47,41 +135,65 @@
       line.textContent = '接续上一段对话';
       messages.append(line);
     }
-    function addMessage(role, text, messageId = null) {
+    function addMessage(role, text, messageId = null, ooc = null) {
       clearEmpty();
       const item = document.createElement('div');
       item.className = `message ${role}`;
       const content = document.createElement('span');
+      content.className = 'message-text';
       content.textContent = text;
       item.append(content);
       if (role === 'assistant' && messageId !== null) {
-        const flag = document.createElement('button');
-        flag.type = 'button';
-        flag.textContent = '他不会这么说';
-        flag.addEventListener('click', async () => {
-          flag.disabled = true;
-          try {
-            const response = await fetch('/ooc/flag', {
-              method: 'POST', headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({message_id: messageId, player_rewrite: null})
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.detail || '标记失败');
-            const note = document.createElement('small');
-            note.textContent = data.rewritten
-              ? `守门人：${data.reason}\n建议改成：${data.rewritten}`
-              : data.reason;
-            item.append(note);
-            flag.remove();
-          } catch (error) {
-            errorBox.textContent = error.message;
-            flag.disabled = false;
+        let pressTimer;
+        let pressX;
+        let pressY;
+        item.tabIndex = 0;
+        item.addEventListener('contextmenu', (event) => {
+          event.preventDefault();
+          showMenu(item, messageId, event.clientX, event.clientY);
+        });
+        item.addEventListener('keydown', (event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+            event.preventDefault();
+            const bounds = item.getBoundingClientRect();
+            showMenu(item, messageId, bounds.right, bounds.bottom);
           }
         });
-        item.append(flag);
+        item.addEventListener('pointerdown', (event) => {
+          if (event.pointerType !== 'touch' || event.target.closest('.ooc-mark')) return;
+          pressX = event.clientX;
+          pressY = event.clientY;
+          pressTimer = setTimeout(() => showMenu(item, messageId, pressX, pressY), 550);
+        });
+        item.addEventListener('pointermove', (event) => {
+          if (event.pointerType !== 'touch') return;
+          if (Math.abs(event.clientX - pressX) > 10 || Math.abs(event.clientY - pressY) > 10) {
+            clearTimeout(pressTimer);
+          }
+        });
+        for (const eventName of ['pointerup', 'pointercancel', 'pointerleave']) {
+          item.addEventListener(eventName, () => clearTimeout(pressTimer));
+        }
       }
+      showOOCMarker(item, ooc);
       messages.append(item);
       messages.scrollTop = messages.scrollHeight;
+    }
+
+    async function restoreMessages() {
+      send.disabled = true;
+      try {
+        const response = await fetch('/messages');
+        if (!response.ok) throw new Error('加载历史消息失败');
+        for (const message of await response.json()) {
+          addMessage(message.role, message.content, message.message_id, message.ooc);
+        }
+      } catch (error) {
+        errorBox.dataset.kind = 'error';
+        errorBox.textContent = error.message;
+      } finally {
+        send.disabled = false;
+      }
     }
 
     form.addEventListener('submit', async (event) => {
@@ -89,6 +201,7 @@
       const content = input.value;
       if (!content.trim()) return;
       errorBox.textContent = '';
+      errorBox.dataset.kind = 'error';
       addMessage('user', content);
       input.value = '';
       send.disabled = true;
@@ -100,7 +213,8 @@
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || '发送失败');
         if (data.handoff_happened) addDivider();
-        addMessage('assistant', data.reply, data.message_id);
+        addMessage('assistant', data.reply, data.message_id,
+          data.ooc ? {...data.ooc, rewritten: data.reply, source: 'gatekeeper'} : null);
       } catch (error) {
         errorBox.textContent = error.message;
       } finally {
@@ -108,6 +222,7 @@
         input.focus();
       }
     });
+    restoreMessages();
   </script>
 </body>
 </html>
