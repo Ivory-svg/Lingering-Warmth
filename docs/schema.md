@@ -114,6 +114,15 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 
 ## 第二档以后（先不建，写在这里方便提前对齐）
 
+**memories 加字段（第二档的迁移）**：答应过的事、待办、“还在路上”这类会过期的状态，见 design.md「答应过的事会结束」。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| status | TEXT | 为空 = 普通记忆；`open` 进行中 / `done` 做完了 / `dropped` 不做了 |
+| status_as_of | TEXT | 这个状态是哪天的 |
+| resolved_at | TEXT | 结案时间 |
+| resolved_note | TEXT | 为什么结案，例如“玩家说已经到货了” |
+
 | 表 | 用途 | 关键字段 |
 |---|---|---|
 | diary_entries | 日记 | date, title, content, written_at, memory_ids |
@@ -121,6 +130,7 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | keepsakes | 信物 | name, aliases(JSON), first_seen_at |
 | keepsake_links | 信物 ↔ 记忆 | keepsake_id, memory_id |
 | anniversaries | 纪念日 | date(MM-DD 或完整日期), title, source(`manual`/`keepsake`), memory_id |
-| dreams | 梦境产生的想法 | created_at, based_on_memory_id, content, used_in_wake |
+| dream_books | 梦的合集，按月一本 | month(YYYY-MM), created_at, updated_at |
+| dreams | 合集里的一个梦（追加，不单独浮现） | book_id, created_at, based_on_memory_id, content, used_in_wake |
 | wake_log | 唤醒记录 | checked_at, decided(`send`/`skip`), reason, message_id |
 | player_days | 玩家的日子（经期等，默认关闭） | date, kind, note, source |
