@@ -1,11 +1,18 @@
 import asyncio
+from dataclasses import replace
 import json
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+import httpx
+
+from test_chat_api import make_parts
+from yuwen.api import create_app
 from yuwen.chat import ChatService
 from yuwen.config import CharacterConfig
 from yuwen.context import ContextBuilder
 from yuwen.handoff import HandoffService
+from yuwen.llm import LLMClient
 from yuwen.store import Store
 from yuwen.worldbook import WorldbookReader
 
@@ -94,3 +101,90 @@ def test_handoff_does_not_run_below_threshold(tmp_path: Path) -> None:
     assert not result.handoff_happened
     assert result.session_id == 1
     assert len(llm.calls) == 1
+
+
+def test_chat_continues_after_two_invalid_handoff_json_responses(tmp_path: Path) -> None:
+    config, store, books = make_parts(tmp_path)
+    config = replace(
+        config,
+        llm=replace(config.llm, context_limit=1),
+        gatekeeper=replace(config.gatekeeper, pre_send=False),
+    )
+    replies = iter(
+        [
+            "无效的交接 JSON",
+            "仍然不是 JSON",
+            "先从自我介绍开始。",
+            json.dumps(
+                {
+                    "summary": "她准备面试，他陪她练习。",
+                    "quote": "明天要面试",
+                    "emotion_text": "紧张，得到支持",
+                    "certainty": 0.9,
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+    requests: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": next(replies)}}]},
+        )
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    model = LLMClient(config.llm, client=http_client)
+    app = create_app(config, store=store, llm=model, worldbook=books)
+
+    with TestClient(app) as client:
+        response = client.post("/chat", json={"content": "明天要面试"})
+    asyncio.run(http_client.aclose())
+
+    assert response.status_code == 200
+    assert response.json()["reply"] == "先从自我介绍开始。"
+    assert response.json()["session_id"] == 2
+    assert response.json()["handoff_happened"] is True
+    assert len(requests) == 4
+    assert all(request["response_format"] == {"type": "json_object"} for request in requests[:2])
+    assert store.get_session(1)["ended_at"] is not None  # type: ignore[index]
+    handoff = store.list_table("handoffs")[0]
+    assert (handoff["doing"], handoff["where_we_are"], handoff["emotion"]) == (
+        "未记录",
+        "未记录",
+        "未标注",
+    )
+    assert json.loads(handoff["raw_tail_message_ids"]) == [1]
+    assert store.list_table("memories")[0]["certainty"] == 0.5
+    assert [(row["role"], row["content"]) for row in store.list_table("messages")] == [
+        ("user", "明天要面试"),
+        ("assistant", "先从自我介绍开始。"),
+    ]
+    assert any(
+        message["content"] == "明天要面试"
+        for message in app.state.chat_service.context.build(2)
+    )
+
+
+def test_handoff_with_missing_json_fields_uses_fallback(tmp_path: Path) -> None:
+    store, context = parts(tmp_path)
+    llm = SequenceLLM(['{"doing":"准备面试"}', "我们继续练习。"])
+    handoff = HandoffService(
+        store,
+        llm,
+        context_limit=1,
+        trigger_ratio=1,
+        raw_tail=20,
+    )
+
+    result = asyncio.run(
+        ChatService(store, context, llm, handoff=handoff).handle_message("先练一遍吧")
+    )
+
+    assert result.handoff_happened
+    assert result.reply == "我们继续练习。"
+    handoff_row = store.list_table("handoffs")[0]
+    assert handoff_row["where_we_are"] == "未记录"
+    assert handoff_row["emotion"] == "未标注"

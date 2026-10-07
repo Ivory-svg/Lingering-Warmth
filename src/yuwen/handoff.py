@@ -8,7 +8,7 @@ from importlib.resources import files
 import json
 from typing import Protocol
 
-from yuwen.llm import estimate_tokens
+from yuwen.llm import LLMError, estimate_tokens
 from yuwen.store import Store, now_iso
 
 
@@ -70,12 +70,22 @@ class HandoffService:
         if not self.should_handoff(messages):
             return HandoffResult(session_id=session_id, happened=False)
 
-        raw = await self.llm.chat(
-            [*messages, {"role": "user", "content": self._prompt}],
-            small=False,
-            json_response=True,
-        )
-        content = self._parse(raw)
+        degraded = False
+        try:
+            raw = await self.llm.chat(
+                [*messages, {"role": "user", "content": self._prompt}],
+                small=False,
+                json_response=True,
+            )
+            content = self._parse(raw)
+        except (LLMError, ValueError, TypeError):
+            # 交接摘要缺失时仍要换窗，让原话继续陪着下一轮对话。
+            content = {
+                "doing": "未记录",
+                "where_we_are": "未记录",
+                "emotion": "未标注",
+            }
+            degraded = True
         tail = self.store.list_tail_messages(session_id, self.raw_tail)
         tail_ids = [int(message["id"]) for message in tail]
         created_at = now_iso()
@@ -92,7 +102,7 @@ class HandoffService:
             happened_at=created_at,
             summary=f"{content['doing']}；{content['where_we_are']}",
             emotion_text=content["emotion"],
-            certainty=0.9,
+            certainty=0.5 if degraded else 0.9,
             source_message_ids=tail_ids,
             session_id=session_id,
             created_at=created_at,
