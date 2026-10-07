@@ -21,13 +21,39 @@
   "message_id": 128,
   "reply": "……",
   "session_id": 7,
-  "ooc_rewritten": false,
+  "ooc_rewritten": true,
+  "ooc": {
+    "original": "我好想你！",
+    "reason": "他从不用感叹号，也不会直接说想你",
+    "voice_note_id": 12
+  },
   "handoff_happened": false
 }
 ```
 
 - `ooc_rewritten`：发出前被守门人改写过
+- `ooc`：只在 `ooc_rewritten` 为 true 时出现，否则为 null。前端点开小标记时显示这里的内容，不用再发请求
 - `handoff_happened`：这一轮之前刚做过一次交接（前端可以显示一条细细的分隔线）
+
+### `GET /messages`
+
+网页打开或刷新时，拿回当前窗口的原话，好把对话和小标记重新画出来。
+
+响应：数组，按时间顺序。
+
+```json
+[
+  { "message_id": 127, "role": "user", "content": "今天好累", "created_at": "..." },
+  {
+    "message_id": 128, "role": "assistant", "content": "……", "created_at": "...",
+    "ooc": { "original": "...", "reason": "...", "rewritten": "...", "voice_note_id": 12, "source": "gatekeeper" }
+  }
+]
+```
+
+- `ooc`：这条回复有过语感笔记（守门人改写或玩家标记）时才有，取最新一条；否则为 null
+- `role = event` 的消息不返回
+- 交接分隔线暂不需要在刷新后还原
 
 ### `POST /ooc/flag`
 
