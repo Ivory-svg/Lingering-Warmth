@@ -54,8 +54,7 @@ AI 会失忆，是因为它只有当下、没有时间。余温给 AI 一块不�
 ```bash
 uv sync --extra test
 cp config.example.toml config.toml
-mkdir -p worldbook
-cp examples/worldbook.example.md worldbook/character.md
+cp -r examples/worldbook worldbook
 ```
 
 编辑 `config.toml` 中的 `base_url`、`api_key` 和模型名，然后启动：

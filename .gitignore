@@ -1,6 +1,6 @@
 # 玩家自己的东西，永远不进仓库
-worldbook/
-data/
+/worldbook/
+/data/
 config.toml
 *.db
 *.db-*
