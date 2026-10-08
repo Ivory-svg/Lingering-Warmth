@@ -70,7 +70,14 @@ class Store:
                     .joinpath("migrations", "002_voice_notes_overturn.sql")
                     .read_text(encoding="utf-8")
                 )
-            elif version != "2":
+                version = "2"
+            if version == "2":
+                connection.executescript(
+                    files("yuwen")
+                    .joinpath("migrations", "003_memory_recall.sql")
+                    .read_text(encoding="utf-8")
+                )
+            elif version != "3":
                 raise RuntimeError(f"不支持的数据库版本：{version}")
 
     def schema_version(self) -> str:
@@ -213,6 +220,7 @@ class Store:
         arousal: float | None = None,
         created_at: str | None = None,
         embedding: bytes | None = None,
+        sealed: bool = False,
     ) -> int:
         with self._connect() as connection:
             cursor = connection.execute(
@@ -220,8 +228,8 @@ class Store:
                 INSERT INTO memories (
                     kind, created_at, happened_at, summary, quote, emotion_text,
                     valence, arousal, certainty, source_message_ids, session_id,
-                    embedding
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    embedding, sealed
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     kind,
@@ -236,6 +244,7 @@ class Store:
                     _json(list(source_message_ids)),
                     session_id,
                     embedding,
+                    int(sealed),
                 ),
             )
             return int(cursor.lastrowid)
@@ -246,6 +255,56 @@ class Store:
                 "SELECT * FROM memories WHERE id = ?", (memory_id,)
             ).fetchone()
         return dict(row) if row else None
+
+    def update_memory_embedding(self, memory_id: int, embedding: bytes, model: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE memories SET embedding = ?, embedding_model = ? WHERE id = ?",
+                (embedding, model, memory_id),
+            )
+            return cursor.rowcount > 0
+
+    def list_memories_needing_embedding(
+        self, model: str, *, after_id: int = 0, limit: int = 32
+    ) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM memories
+                WHERE id > ? AND (embedding IS NULL OR embedding_model IS NULL
+                                  OR embedding_model != ?)
+                ORDER BY id LIMIT ?
+                """,
+                (after_id, model, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_recall_candidates(self, embedding_model: str | None = None) -> list[dict[str, Any]]:
+        condition = "AND embedding IS NOT NULL AND embedding_model = ?" if embedding_model else ""
+        parameters: tuple[object, ...] = (embedding_model,) if embedding_model else ()
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM memories
+                WHERE sealed = 0 AND kind != 'dream' {condition}
+                ORDER BY id
+                """,
+                parameters,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_memories_recalled(self, memory_ids: Sequence[int], *, recalled_at: str) -> None:
+        if not memory_ids:
+            return
+        placeholders = ",".join("?" for _ in memory_ids)
+        with self._connect() as connection:
+            connection.execute(
+                f"""
+                UPDATE memories SET last_recalled_at = ?, recall_count = recall_count + 1
+                WHERE id IN ({placeholders})
+                """,  # noqa: S608
+                (recalled_at, *memory_ids),
+            )
 
     def list_pending_inflow_turns(
         self, session_id: int

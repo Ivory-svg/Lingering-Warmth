@@ -49,7 +49,7 @@ def test_build_export_contains_every_table_and_base64_embedding(tmp_path: Path) 
 
     exported = build_export(store)
 
-    assert exported["schema_version"] == "2"
+    assert exported["schema_version"] == "3"
     assert set(exported["tables"]) == set(TABLES)
     assert exported["tables"]["memories"][0]["embedding"] == base64.b64encode(
         b"\x00\x01\x02"
@@ -66,7 +66,7 @@ def test_export_and_health_endpoints(tmp_path: Path) -> None:
         health = client.get("/health")
         exported = client.get("/export")
 
-    assert health.json() == {"ok": True, "schema_version": "2"}
+    assert health.json() == {"ok": True, "schema_version": "3"}
     assert exported.status_code == 200
     assert "attachment" in exported.headers["content-disposition"]
     assert set(exported.json()["tables"]) == set(TABLES)
@@ -88,7 +88,7 @@ def test_markdown_export_uses_names_and_restored_reply_without_embedding(tmp_pat
         reason="太直白",
     )
     store.overturn_voice_note(note_id, "他会这样说")
-    store.add_memory(
+    memory_id = store.add_memory(
         kind="turn",
         happened_at="2026-10-07T10:01:00+08:00",
         summary="她问他想不想她",
@@ -98,6 +98,7 @@ def test_markdown_export_uses_names_and_restored_reply_without_embedding(tmp_pat
         session_id=session_id,
         embedding=b"secret-embedding",
     )
+    store.mark_memories_recalled([memory_id], recalled_at="2026-10-08T10:00:00+08:00")
     app = create_app(config, store=store, llm=FakeLLM(), worldbook=books)
 
     with TestClient(app) as client:
@@ -107,9 +108,11 @@ def test_markdown_export_uses_names_and_restored_reply_without_embedding(tmp_pat
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/markdown")
     assert "yuwen-export.md" in response.headers["content-disposition"]
-    assert "**小雨**" in response.text
+    assert "**你**" in response.text.split("## 记忆")[0]
+    assert "**小雨**" not in response.text.split("## 记忆")[0]
     assert "**林舟**" in response.text
     assert "我好想你！" in response.text.split("## 记忆")[0]
     assert "## 语感笔记" in response.text
+    assert "被想起 1 次" in response.text
     assert "secret-embedding" not in response.text
     assert invalid.status_code == 422

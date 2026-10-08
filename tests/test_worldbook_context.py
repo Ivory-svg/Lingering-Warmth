@@ -189,6 +189,33 @@ def test_context_order_includes_notes_handoff_tail_and_current_messages(tmp_path
     assert messages[-1]["content"] == "我们继续吧"
 
 
+def test_surfaced_memory_sits_between_handoff_summary_and_raw_tail(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    previous_id = store.create_session()
+    old_user = store.add_message(previous_id, "user", "上一窗原话")
+    handoff_id = store.add_handoff(
+        session_id=previous_id,
+        doing="等外卖",
+        where_we_are="说起雨伞",
+        emotion="平静",
+        raw_tail_message_ids=[old_user],
+    )
+    current_id = store.create_session(continues_handoff_id=handoff_id)
+    store.add_message(current_id, "user", "现在这句")
+
+    messages = ContextBuilder(store, make_reader(tmp_path)).build(
+        current_id, surfaced="想起了旧事"
+    )
+
+    assert [item["content"] for item in messages[-4:]] == [
+        "上一窗口留给你的交接：\n正在做：等外卖\n聊到：说起雨伞\n此刻情绪：平静",
+        "想起了旧事",
+        "上一窗原话",
+        "现在这句",
+    ]
+
+
 def test_context_uses_core_matched_entries_and_sampled_corpus(tmp_path: Path) -> None:
     directory = tmp_path / "worldbook"
     entries = directory / "entries"

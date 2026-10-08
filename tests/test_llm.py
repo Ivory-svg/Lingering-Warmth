@@ -4,8 +4,8 @@ import json
 import httpx
 import pytest
 
-from yuwen.config import LLMConfig
-from yuwen.llm import LLMClient, LLMResponseError, estimate_tokens
+from yuwen.config import EmbeddingConfig, LLMConfig
+from yuwen.llm import EmbeddingClient, LLMClient, LLMError, LLMResponseError, estimate_tokens
 
 
 def config() -> LLMConfig:
@@ -113,4 +113,81 @@ def test_json_response_raises_after_two_invalid_results() -> None:
             await LLMClient(config(), client=http, sleep=no_sleep).chat([], json_response=True)
 
     with pytest.raises(LLMResponseError):
+        asyncio.run(run())
+
+
+def test_embedding_uses_independent_config_and_restores_input_order() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"data": [
+                {"index": 1, "embedding": [0, 1]},
+                {"index": 0, "embedding": [1, 0]},
+            ]},
+        )
+
+    async def run() -> list[list[float]]:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            return await EmbeddingClient(
+                EmbeddingConfig("https://embed.test/v1", "embed-key", "bge-m3"),
+                client=http,
+                sleep=no_sleep,
+            ).embed(["下雨", "雨伞"])
+
+    assert asyncio.run(run()) == [[1.0, 0.0], [0.0, 1.0]]
+    assert str(requests[0].url) == "https://embed.test/v1/embeddings"
+    assert requests[0].headers["Authorization"] == "Bearer embed-key"
+    assert json.loads(requests[0].content) == {
+        "model": "bge-m3", "input": ["下雨", "雨伞"]
+    }
+
+
+def test_embedding_is_disabled_without_base_url() -> None:
+    async def run() -> list[list[float]]:
+        return await EmbeddingClient(EmbeddingConfig()).embed(["无需请求"])
+
+    assert asyncio.run(run()) == []
+
+
+def test_embedding_retries_invalid_response_then_succeeds() -> None:
+    attempts = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1]}]})
+        return httpx.Response(200, json={"data": [
+            {"index": 0, "embedding": [1, 0]},
+            {"index": 1, "embedding": [0, 1]},
+        ]})
+
+    async def run() -> list[list[float]]:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            return await EmbeddingClient(
+                EmbeddingConfig(base_url="https://embed.test/v1"),
+                client=http,
+                sleep=no_sleep,
+            ).embed(["一", "二"])
+
+    assert asyncio.run(run()) == [[1.0, 0.0], [0.0, 1.0]]
+    assert attempts == 2
+
+
+def test_embedding_rejects_invalid_vectors_after_retries() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": []}]})
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            await EmbeddingClient(
+                EmbeddingConfig(base_url="https://embed.test/v1"),
+                client=http,
+                sleep=no_sleep,
+            ).embed(["一"])
+
+    with pytest.raises(LLMError):
         asyncio.run(run())

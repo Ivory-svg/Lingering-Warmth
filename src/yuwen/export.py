@@ -29,9 +29,7 @@ def _display_time(value: str) -> str:
     return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M")
 
 
-def build_markdown_export(
-    store: Store, *, character_name: str = "他", player_name: str = "你"
-) -> str:
+def build_markdown_export(store: Store, *, character_name: str = "他") -> str:
     """按对话、记忆、交接和语感笔记导出给人阅读的版本。"""
 
     lines = [f"# 余温导出 · {now_iso()[:10]}", "", "## 对话", ""]
@@ -41,7 +39,7 @@ def build_markdown_export(
             lines.extend(["", "—— 接续上一段对话 ——"])
         for message in store.list_messages(int(session["id"])):
             label = {
-                "user": player_name,
+                "user": "你",
                 "assistant": character_name,
                 "event": "事件",
             }.get(str(message["role"]), str(message["role"]))
@@ -56,7 +54,7 @@ def build_markdown_export(
     for memory in store.list_table("memories"):
         lines.append(
             f"- {_display_time(memory['happened_at'])} · {memory['emotion_text']} · "
-            f"{memory['summary']}（确定度 {memory['certainty']}）"
+            f"{memory['summary']}（确定度 {memory['certainty']}，被想起 {memory['recall_count']} 次）"
         )
     lines.extend(["", "## 交接", ""])
     for handoff in store.list_table("handoffs"):

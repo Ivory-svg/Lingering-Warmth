@@ -8,6 +8,7 @@ import json
 from typing import Any
 
 from yuwen.chat import ChatModel
+from yuwen.embedder import MemoryEmbedder
 from yuwen.store import Store
 
 
@@ -25,14 +26,16 @@ class InflowService:
         llm: ChatModel,
         *,
         character_name: str = "他",
-        player_name: str = "你",
+        player_name: str = "对方",
         every_n_turns: int = 1,
+        embedder: MemoryEmbedder | None = None,
     ):
         self.store = store
         self.llm = llm
         self.character_name = character_name
         self.player_name = player_name
         self.every_n_turns = every_n_turns
+        self.embedder = embedder
         self._lock = asyncio.Lock()
         self._template = files("yuwen.prompts").joinpath("inflow.md").read_text(encoding="utf-8")
 
@@ -46,6 +49,8 @@ class InflowService:
             self._template.replace("{轮数}", str(len(turns)))
             .replace("{对话原文}", dialogue)
             .replace("{这一轮最后一条消息的时间}", str(turns[-1][1]["created_at"]))
+            .replace("{玩家}", self.player_name)
+            .replace("{角色名}", self.character_name)
         )
 
     @staticmethod
@@ -96,7 +101,7 @@ class InflowService:
             }
         last_assistant = turns[-1][1]
         source_ids = [int(row["id"]) for turn in turns for row in turn]
-        return self.store.add_memory(
+        memory_id = self.store.add_memory(
             kind="turn",
             happened_at=str(last_assistant["created_at"]),
             summary=str(memory["summary"]),
@@ -108,6 +113,9 @@ class InflowService:
             source_message_ids=source_ids,
             session_id=int(last_assistant["session_id"]),
         )
+        if self.embedder is not None:
+            await self.embedder.embed_memory(memory_id)
+        return memory_id
 
     async def process_turn(
         self, user_message_id: int, assistant_message_id: int

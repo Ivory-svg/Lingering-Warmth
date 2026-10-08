@@ -16,7 +16,7 @@ def test_initialize_is_repeatable_and_sets_schema_version(tmp_path: Path) -> Non
     store = make_store(tmp_path)
     store.initialize()
 
-    assert store.schema_version() == "2"
+    assert store.schema_version() == "3"
     assert store.path.exists()
 
 
@@ -40,12 +40,43 @@ def test_initialize_migrates_existing_v1_database_without_losing_notes(tmp_path:
     store.initialize()
     store.initialize()
 
-    assert store.schema_version() == "2"
+    assert store.schema_version() == "3"
     assert store.get_message(message_id)["content"] == "原回复"  # type: ignore[index]
     note = store.list_voice_notes()[0]
     assert note["id"] == note_id
     assert note["overturned_at"] is None
     assert note["overturn_note"] is None
+
+
+def test_initialize_migrates_v2_memories_without_losing_content(tmp_path: Path) -> None:
+    path = tmp_path / "v2.db"
+    with sqlite3.connect(path) as connection:
+        for migration in ("001_initial.sql", "002_voice_notes_overturn.sql"):
+            connection.executescript(
+                files("yuwen").joinpath("migrations", migration).read_text(encoding="utf-8")
+            )
+    store = Store(path)
+    session_id = store.create_session()
+    memory_id = store.add_memory(
+        kind="turn",
+        happened_at="2026-10-07T10:00:00+08:00",
+        summary="原有的记忆",
+        emotion_text="平静",
+        certainty=0.9,
+        source_message_ids=[],
+        session_id=session_id,
+        embedding=b"old-vector",
+    )
+
+    store.initialize()
+    store.initialize()
+
+    memory = store.get_memory(memory_id)
+    assert store.schema_version() == "3"
+    assert memory["summary"] == "原有的记忆"  # type: ignore[index]
+    assert memory["embedding"] == b"old-vector"  # type: ignore[index]
+    assert memory["embedding_model"] is None  # type: ignore[index]
+    assert memory["recall_count"] == 0  # type: ignore[index]
 
 
 def test_session_and_message_round_trip(tmp_path: Path) -> None:

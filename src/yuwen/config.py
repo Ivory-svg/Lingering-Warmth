@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 import tomllib
 from typing import Any
@@ -26,7 +27,7 @@ class CharacterConfig:
     prompt_file: Path
     worldbook_dir: Path
     name: str = "他"
-    player_name: str = "你"
+    player_name: str = "对方"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +47,29 @@ class HandoffConfig:
 @dataclass(frozen=True, slots=True)
 class InflowConfig:
     every_n_turns: int = 1
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingConfig:
+    base_url: str = ""
+    api_key: str = ""
+    model: str = "bge-m3"
+    batch_size: int = 32
+
+
+@dataclass(frozen=True, slots=True)
+class SurfacingConfig:
+    enabled: bool = True
+    query_depth: int = 2
+    top_k: int = 4
+    max_chars: int = 1500
+    min_similarity: float = 0.45
+    clear_threshold: float = 0.7
+
+
+@dataclass(frozen=True, slots=True)
+class DecayConfig:
+    base_days: float = 7.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +100,9 @@ class AppConfig:
     config_path: Path
     worldbook: WorldbookConfig = WorldbookConfig()
     inflow: InflowConfig = InflowConfig()
+    embedding: EmbeddingConfig = EmbeddingConfig()
+    surfacing: SurfacingConfig = SurfacingConfig()
+    decay: DecayConfig = DecayConfig()
 
 
 def _section(data: dict[str, Any], name: str) -> dict[str, Any]:
@@ -106,6 +133,13 @@ def _integer_option(
         requirement = "正整数" if minimum == 1 else "非负整数"
         raise ConfigError(f"[{section_name}] {key} 必须是{requirement}")
     return value
+
+
+def _ratio_option(section: dict[str, Any], key: str, name: str, default: float) -> float:
+    value = section.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
+        raise ConfigError(f"[{name}] {key} 必须是 0 到 1 的数")
+    return float(value)
 
 
 def load_config(path: str | Path = "config.toml") -> AppConfig:
@@ -147,6 +181,42 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
     inflow_data = _section(data, "inflow")
     every_n_turns = _integer_option(inflow_data, "every_n_turns", "inflow", 1, 1)
 
+    embedding_data = _section(data, "embedding")
+    embedding_base_url = embedding_data.get("base_url", "")
+    embedding_api_key = embedding_data.get("api_key", "")
+    embedding_model = embedding_data.get("model", "bge-m3")
+    if not isinstance(embedding_base_url, str):
+        raise ConfigError("[embedding] base_url 必须是字符串")
+    if not isinstance(embedding_api_key, str):
+        raise ConfigError("[embedding] api_key 必须是字符串")
+    if not isinstance(embedding_model, str) or not embedding_model.strip():
+        raise ConfigError("[embedding] model 必须是非空字符串")
+    embedding_batch_size = _integer_option(embedding_data, "batch_size", "embedding", 32, 1)
+
+    surfacing_data = _section(data, "surfacing")
+    surfacing_enabled = surfacing_data.get("enabled", True)
+    if not isinstance(surfacing_enabled, bool):
+        raise ConfigError("[surfacing] enabled 必须是布尔值")
+    surfacing_query_depth = _integer_option(surfacing_data, "query_depth", "surfacing", 2, 1)
+    surfacing_top_k = _integer_option(surfacing_data, "top_k", "surfacing", 4, 1)
+    surfacing_max_chars = _integer_option(surfacing_data, "max_chars", "surfacing", 1500, 0)
+    surfacing_min_similarity = _ratio_option(
+        surfacing_data, "min_similarity", "surfacing", 0.45
+    )
+    surfacing_clear_threshold = _ratio_option(
+        surfacing_data, "clear_threshold", "surfacing", 0.7
+    )
+
+    decay_data = _section(data, "decay")
+    base_days = decay_data.get("base_days", 7)
+    if (
+        isinstance(base_days, bool)
+        or not isinstance(base_days, (int, float))
+        or not math.isfinite(base_days)
+        or base_days <= 0
+    ):
+        raise ConfigError("[decay] base_days 必须是正数")
+
     gatekeeper_data = _section(data, "gatekeeper")
     pre_send = gatekeeper_data.get("pre_send", True)
     notes_limit = gatekeeper_data.get("voice_notes_in_context", 10)
@@ -166,7 +236,7 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
     base = config_path.parent
     character_data = _section(data, "character")
     name = character_data.get("name", "他")
-    player_name = character_data.get("player_name", "你")
+    player_name = character_data.get("player_name", "对方")
     if not isinstance(name, str) or not name.strip():
         raise ConfigError("[character] name 必须是非空字符串")
     if not isinstance(player_name, str) or not player_name.strip():
@@ -200,4 +270,19 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
         config_path=config_path,
         worldbook=WorldbookConfig(scan_depth, entry_budget, corpus_sample),
         inflow=InflowConfig(every_n_turns),
+        embedding=EmbeddingConfig(
+            embedding_base_url.strip().rstrip("/"),
+            embedding_api_key.strip(),
+            embedding_model.strip(),
+            embedding_batch_size,
+        ),
+        surfacing=SurfacingConfig(
+            surfacing_enabled,
+            surfacing_query_depth,
+            surfacing_top_k,
+            surfacing_max_chars,
+            surfacing_min_similarity,
+            surfacing_clear_threshold,
+        ),
+        decay=DecayConfig(float(base_days)),
     )

@@ -39,7 +39,7 @@ class GatekeeperService:
         scan_depth: int = 4,
         entry_budget: int = 3000,
         character_name: str = "他",
-        player_name: str = "你",
+        player_name: str = "对方",
     ):
         self.store = store
         self.worldbook = worldbook
