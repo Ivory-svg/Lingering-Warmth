@@ -45,14 +45,33 @@ class Store:
         return connection
 
     def initialize(self) -> None:
-        """建立数据库，并执行当前唯一的一号迁移。"""
+        """建立数据库，并按版本顺序执行尚未应用的迁移。"""
 
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        migration = (
-            files("yuwen").joinpath("migrations", "001_initial.sql").read_text(encoding="utf-8")
-        )
         with self._connect() as connection:
-            connection.executescript(migration)
+            exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'"
+            ).fetchone()
+            if not exists:
+                connection.executescript(
+                    files("yuwen")
+                    .joinpath("migrations", "001_initial.sql")
+                    .read_text(encoding="utf-8")
+                )
+            row = connection.execute(
+                "SELECT value FROM schema_meta WHERE key = 'version'"
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("数据库缺少版本号")
+            version = str(row["value"])
+            if version == "1":
+                connection.executescript(
+                    files("yuwen")
+                    .joinpath("migrations", "002_voice_notes_overturn.sql")
+                    .read_text(encoding="utf-8")
+                )
+            elif version != "2":
+                raise RuntimeError(f"不支持的数据库版本：{version}")
 
     def schema_version(self) -> str:
         with self._connect() as connection:
@@ -228,6 +247,40 @@ class Store:
             ).fetchone()
         return dict(row) if row else None
 
+    def list_pending_inflow_turns(
+        self, session_id: int
+    ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        """按回复所在窗口找出尚未被流入记忆覆盖的完整轮次。"""
+
+        with self._connect() as connection:
+            assistants = connection.execute(
+                "SELECT * FROM messages WHERE session_id = ? AND role = 'assistant' ORDER BY id",
+                (session_id,),
+            ).fetchall()
+            memories = connection.execute(
+                "SELECT source_message_ids FROM memories WHERE session_id = ? AND kind = 'turn'",
+                (session_id,),
+            ).fetchall()
+            summarized_ids = {
+                message_id
+                for memory in memories
+                for message_id in json.loads(memory["source_message_ids"])
+            }
+            pending: list[tuple[dict[str, Any], dict[str, Any]]] = []
+            for assistant in assistants:
+                if assistant["id"] in summarized_ids:
+                    continue
+                meta = json.loads(assistant["meta"]) if assistant["meta"] else {}
+                user_id = meta.get("inflow_user_message_id")
+                if not isinstance(user_id, int) or isinstance(user_id, bool):
+                    continue
+                user = connection.execute(
+                    "SELECT * FROM messages WHERE id = ? AND role = 'user'", (user_id,)
+                ).fetchone()
+                if user is not None:
+                    pending.append((dict(user), dict(assistant)))
+        return pending
+
     def add_memory_history(
         self,
         memory_id: int,
@@ -320,6 +373,79 @@ class Store:
                 parameters,
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_voice_note(self, note_id: int) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM voice_notes WHERE id = ?", (note_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def restored_voice_note(self, message: dict[str, Any]) -> dict[str, Any] | None:
+        """找到消息 meta 指向的、已恢复原句的语感笔记。"""
+
+        try:
+            meta = json.loads(message["meta"]) if message["meta"] else {}
+        except (TypeError, json.JSONDecodeError):
+            return None
+        if not isinstance(meta, dict) or meta.get("restored") is not True:
+            return None
+        note_id = meta.get("voice_note_id")
+        if not isinstance(note_id, int) or isinstance(note_id, bool):
+            return None
+        note = self.get_voice_note(note_id)
+        if note is None or note["message_id"] != message["id"]:
+            return None
+        return note
+
+    def visible_message_content(self, message: dict[str, Any]) -> str:
+        restored = self.restored_voice_note(message)
+        return str(restored["original"] if restored else message["content"])
+
+    def overturn_voice_note(self, note_id: int, note_text: str | None) -> dict[str, Any] | None:
+        """停用语感笔记；守门人改写过的回复用 meta 标记恢复。"""
+
+        with self._connect() as connection:
+            note = connection.execute(
+                "SELECT * FROM voice_notes WHERE id = ?", (note_id,)
+            ).fetchone()
+            if note is None or note["message_id"] is None:
+                return None
+            message = connection.execute(
+                "SELECT * FROM messages WHERE id = ?", (note["message_id"],)
+            ).fetchone()
+            if message is None:
+                return None
+            meta = json.loads(message["meta"]) if message["meta"] else {}
+            if note["overturned_at"] is None:
+                connection.execute(
+                    """
+                    UPDATE voice_notes
+                    SET active = 0, overturned_at = ?, overturn_note = ?
+                    WHERE id = ?
+                    """,
+                    (now_iso(), note_text, note_id),
+                )
+                if note["source"] == "gatekeeper":
+                    meta.update({"restored": True, "voice_note_id": note_id})
+                    connection.execute(
+                        "UPDATE messages SET meta = ? WHERE id = ?",
+                        (_json(meta), message["id"]),
+                    )
+            restored = note["source"] == "gatekeeper" and meta.get("restored") is True
+            visible_content = note["original"] if restored else message["content"]
+            if not restored and meta.get("restored") is True:
+                restored_note = connection.execute(
+                    "SELECT original, message_id FROM voice_notes WHERE id = ?",
+                    (meta.get("voice_note_id"),),
+                ).fetchone()
+                if restored_note is not None and restored_note["message_id"] == message["id"]:
+                    visible_content = restored_note["original"]
+            return {
+                "message_id": message["id"],
+                "content": visible_content,
+                "restored": restored,
+            }
 
     def update_voice_note_active(self, note_id: int, active: bool) -> bool:
         with self._connect() as connection:

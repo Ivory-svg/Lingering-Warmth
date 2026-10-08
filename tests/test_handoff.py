@@ -188,3 +188,28 @@ def test_handoff_with_missing_json_fields_uses_fallback(tmp_path: Path) -> None:
     handoff_row = store.list_table("handoffs")[0]
     assert handoff_row["where_we_are"] == "未记录"
     assert handoff_row["emotion"] == "未标注"
+
+
+def test_new_window_waits_for_minimum_user_turns_before_next_handoff(
+    tmp_path: Path,
+) -> None:
+    store, context = parts(tmp_path)
+    handoff_json = json.dumps(
+        {"doing": "聊天", "where_we_are": "继续", "emotion": "平静"}, ensure_ascii=False
+    )
+    llm = SequenceLLM(
+        [handoff_json, "第一句", "第二句", "第三句", handoff_json, "第四句"]
+    )
+    handoff = HandoffService(
+        store, llm, context_limit=1, trigger_ratio=1, raw_tail=20, min_turns=3
+    )
+    chat = ChatService(store, context, llm, handoff=handoff)
+
+    results = [
+        asyncio.run(chat.handle_message(content))
+        for content in ["第一轮", "第二轮", "第三轮", "第四轮"]
+    ]
+
+    assert [result.handoff_happened for result in results] == [True, False, False, True]
+    assert [result.session_id for result in results] == [2, 2, 2, 3]
+    assert sum(json_response for _, _, json_response in llm.calls) == 2

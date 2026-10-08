@@ -1,5 +1,7 @@
 import json
+from importlib.resources import files
 from pathlib import Path
+import sqlite3
 
 from yuwen.store import Store
 
@@ -14,8 +16,36 @@ def test_initialize_is_repeatable_and_sets_schema_version(tmp_path: Path) -> Non
     store = make_store(tmp_path)
     store.initialize()
 
-    assert store.schema_version() == "1"
+    assert store.schema_version() == "2"
     assert store.path.exists()
+
+
+def test_initialize_migrates_existing_v1_database_without_losing_notes(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.db"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            files("yuwen").joinpath("migrations", "001_initial.sql").read_text(encoding="utf-8")
+        )
+    store = Store(path)
+    session_id = store.create_session()
+    message_id = store.add_message(session_id, "assistant", "原回复")
+    note_id = store.add_voice_note(
+        source="gatekeeper",
+        message_id=message_id,
+        original="原句",
+        rewritten="原回复",
+        reason="太直白",
+    )
+
+    store.initialize()
+    store.initialize()
+
+    assert store.schema_version() == "2"
+    assert store.get_message(message_id)["content"] == "原回复"  # type: ignore[index]
+    note = store.list_voice_notes()[0]
+    assert note["id"] == note_id
+    assert note["overturned_at"] is None
+    assert note["overturn_note"] is None
 
 
 def test_session_and_message_round_trip(tmp_path: Path) -> None:
