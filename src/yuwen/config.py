@@ -25,12 +25,27 @@ class LLMConfig:
 class CharacterConfig:
     prompt_file: Path
     worldbook_dir: Path
+    name: str = "他"
+    player_name: str = "你"
+
+
+@dataclass(frozen=True, slots=True)
+class WorldbookConfig:
+    scan_depth: int = 4
+    entry_budget: int = 3000
+    corpus_sample: int = 8
 
 
 @dataclass(frozen=True, slots=True)
 class HandoffConfig:
     trigger_ratio: float = 0.75
     raw_tail: int = 20
+    min_turns: int = 20
+
+
+@dataclass(frozen=True, slots=True)
+class InflowConfig:
+    every_n_turns: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +74,8 @@ class AppConfig:
     storage: StorageConfig
     server: ServerConfig
     config_path: Path
+    worldbook: WorldbookConfig = WorldbookConfig()
+    inflow: InflowConfig = InflowConfig()
 
 
 def _section(data: dict[str, Any], name: str) -> dict[str, Any]:
@@ -79,6 +96,16 @@ def _resolve_path(base: Path, value: object, default: str) -> Path:
     raw = value if isinstance(value, str) and value.strip() else default
     path = Path(raw).expanduser()
     return path if path.is_absolute() else (base / path).resolve()
+
+
+def _integer_option(
+    section: dict[str, Any], key: str, section_name: str, default: int, minimum: int
+) -> int:
+    value = section.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+        requirement = "正整数" if minimum == 1 else "非负整数"
+        raise ConfigError(f"[{section_name}] {key} 必须是{requirement}")
+    return value
 
 
 def load_config(path: str | Path = "config.toml") -> AppConfig:
@@ -107,11 +134,18 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
 
     handoff_data = _section(data, "handoff")
     trigger_ratio = handoff_data.get("trigger_ratio", 0.75)
-    raw_tail = handoff_data.get("raw_tail", 20)
+    raw_tail = _integer_option(handoff_data, "raw_tail", "handoff", 20, 0)
+    min_turns = _integer_option(handoff_data, "min_turns", "handoff", 20, 0)
     if not isinstance(trigger_ratio, (int, float)) or isinstance(trigger_ratio, bool) or not 0 < trigger_ratio <= 1:
         raise ConfigError("[handoff] trigger_ratio 必须大于 0 且不大于 1")
-    if not isinstance(raw_tail, int) or isinstance(raw_tail, bool) or raw_tail < 0:
-        raise ConfigError("[handoff] raw_tail 必须是非负整数")
+
+    worldbook_data = _section(data, "worldbook")
+    scan_depth = _integer_option(worldbook_data, "scan_depth", "worldbook", 4, 1)
+    entry_budget = _integer_option(worldbook_data, "entry_budget", "worldbook", 3000, 0)
+    corpus_sample = _integer_option(worldbook_data, "corpus_sample", "worldbook", 8, 0)
+
+    inflow_data = _section(data, "inflow")
+    every_n_turns = _integer_option(inflow_data, "every_n_turns", "inflow", 1, 1)
 
     gatekeeper_data = _section(data, "gatekeeper")
     pre_send = gatekeeper_data.get("pre_send", True)
@@ -131,6 +165,12 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
 
     base = config_path.parent
     character_data = _section(data, "character")
+    name = character_data.get("name", "他")
+    player_name = character_data.get("player_name", "你")
+    if not isinstance(name, str) or not name.strip():
+        raise ConfigError("[character] name 必须是非空字符串")
+    if not isinstance(player_name, str) or not player_name.strip():
+        raise ConfigError("[character] player_name 必须是非空字符串")
     storage_data = _section(data, "storage")
     return AppConfig(
         llm=LLMConfig(
@@ -141,10 +181,14 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
             context_limit=context_limit,
         ),
         character=CharacterConfig(
-            prompt_file=_resolve_path(base, character_data.get("prompt_file"), "worldbook/character.md"),
+            prompt_file=_resolve_path(base, character_data.get("prompt_file"), "worldbook/core.md"),
             worldbook_dir=_resolve_path(base, character_data.get("worldbook_dir"), "worldbook"),
+            name=name.strip(),
+            player_name=player_name.strip(),
         ),
-        handoff=HandoffConfig(trigger_ratio=float(trigger_ratio), raw_tail=raw_tail),
+        handoff=HandoffConfig(
+            trigger_ratio=float(trigger_ratio), raw_tail=raw_tail, min_turns=min_turns
+        ),
         gatekeeper=GatekeeperConfig(
             pre_send=pre_send,
             voice_notes_in_context=notes_limit,
@@ -154,4 +198,6 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
         ),
         server=ServerConfig(host=host, port=port),
         config_path=config_path,
+        worldbook=WorldbookConfig(scan_depth, entry_budget, corpus_sample),
+        inflow=InflowConfig(every_n_turns),
     )

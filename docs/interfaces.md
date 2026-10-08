@@ -120,7 +120,7 @@
 ```json
 {
   "exported_at": "...",
-  "schema_version": "1",
+  "schema_version": "2",
   "tables": { "sessions": [...], "messages": [...], "memories": [...], "...": [...] }
 }
 ```
@@ -129,7 +129,7 @@
 
 ### `GET /health`
 
-返回 `{"ok": true, "schema_version": "1"}`。
+返回 `{"ok": true, "schema_version": "2"}`。
 
 ---
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from importlib.resources import files
 import json
@@ -37,12 +37,16 @@ class HandoffService:
         context_limit: int,
         trigger_ratio: float,
         raw_tail: int,
+        min_turns: int = 20,
+        before_handoff: Callable[[int], Awaitable[object]] | None = None,
     ):
         self.store = store
         self.llm = llm
         self.context_limit = context_limit
         self.trigger_ratio = trigger_ratio
         self.raw_tail = raw_tail
+        self.min_turns = min_turns
+        self.before_handoff = before_handoff
         self._prompt = files("yuwen.prompts").joinpath("handoff.md").read_text(encoding="utf-8")
 
     def should_handoff(self, messages: Sequence[dict[str, str]]) -> bool:
@@ -67,8 +71,20 @@ class HandoffService:
         session_id: int,
         messages: list[dict[str, str]],
     ) -> HandoffResult:
+        session = self.store.get_session(session_id)
+        if session is None:
+            raise ValueError(f"找不到窗口：{session_id}")
+        if session["continues_handoff_id"] is not None:
+            user_turns = sum(
+                message["role"] == "user" for message in self.store.list_messages(session_id)
+            )
+            if user_turns < self.min_turns:
+                return HandoffResult(session_id=session_id, happened=False)
         if not self.should_handoff(messages):
             return HandoffResult(session_id=session_id, happened=False)
+
+        if self.before_handoff is not None:
+            await self.before_handoff(session_id)
 
         degraded = False
         try:

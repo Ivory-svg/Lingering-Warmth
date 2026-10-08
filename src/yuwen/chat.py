@@ -85,11 +85,15 @@ class ChatService:
             else original_reply
         )
         assert reply is not None
+        reply_meta = {
+            "ooc_rewritten": ooc_rewritten,
+            "inflow_user_message_id": user_message_id,
+        }
         message_id = self.store.add_message(
             session_id,
             "assistant",
             reply,
-            meta={"ooc_rewritten": ooc_rewritten},
+            meta=reply_meta,
         )
         ooc: dict[str, str | int] | None = None
         if ooc_rewritten and gatekeeper_result is not None and self.gatekeeper is not None:
@@ -102,7 +106,7 @@ class ChatService:
             )
             self.store.update_message_meta(
                 message_id,
-                {"ooc_rewritten": True, "voice_note_id": note_id},
+                {**reply_meta, "voice_note_id": note_id},
             )
             ooc = {
                 "original": original_reply,

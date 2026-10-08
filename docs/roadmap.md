@@ -33,25 +33,25 @@
 - [x] 网页：改写过或被标记过的回复，角落显示小标记，点开看原句和原因
 - [x] 网页：没有 OOC 的回复不显示任何额外元素
 - [x] 测试覆盖：改写时响应带 `ooc`、未改写时为 null、`/messages` 带回小标记
-- [ ] 迁移 002：`voice_notes` 加 `overturned_at`、`overturn_note`
-- [ ] 新增 `POST /voice-notes/{id}/overturn`：停用笔记、恢复原句（守门人改写的才恢复）
-- [ ] 拼上下文和 `GET /messages` 时，`meta.restored` 的消息改用语感笔记的 `original`
-- [ ] 网页：小标记点开后有“其实他会这么说”，可以留一句话，推翻后小标记消失、气泡换回原句
-- [ ] 测试覆盖：推翻守门人改写会恢复原句并停用笔记；推翻玩家标记只停用笔记；重复推翻不报错；`messages.content` 始终不变
+- [x] 迁移 002：`voice_notes` 加 `overturned_at`、`overturn_note`
+- [x] 新增 `POST /voice-notes/{id}/overturn`：停用笔记、恢复原句（守门人改写的才恢复）
+- [x] 拼上下文和 `GET /messages` 时，`meta.restored` 的消息改用语感笔记的 `original`
+- [x] 网页：小标记点开后有“其实他会这么说”，可以留一句话，推翻后小标记消失、气泡换回原句
+- [x] 测试覆盖：推翻守门人改写会恢复原句并停用笔记；推翻玩家标记只停用笔记；重复推翻不报错；`messages.content` 始终不变
 
 ### M1.2 · 世界书拆分与省钱
 
 见 [design.md](design.md)「世界书拆成三份」「每说一句话要调几次模型」，接口见 [interfaces.md](interfaces.md) 的 worldbook、context、inflow、handoff、export。
 
-- [ ] 世界书读取改成 核心 / 词条 / 语料 三份；词条解析 `keys`、`priority`；保留旧格式兼容
-- [ ] 拼上下文：核心 + 命中词条 + 抽到的语料；守门人只看核心和命中词条
-- [ ] 配置：`character.name`、`character.player_name`、`worldbook.*`、`handoff.min_turns`、`inflow.every_n_turns`
-- [ ] 守门人、流入的 prompt 用 `character.name` 和 `character.player_name`，不再写死“这个角色”“玩家”
-- [ ] 交接：换窗后至少 `handoff.min_turns` 句才允许再换
-- [ ] 流入：支持每 N 轮总结一次；交接前没攒满的先总结掉
-- [ ] `GET /export?format=markdown`；网页导出给两个选项
-- [ ] README 加一张“每说一句调几次模型”的对照表
-- [ ] 测试覆盖：关键词命中 / 不命中、超出 entry_budget 时按 priority 取舍、语料抽样数量、旧格式兼容、换窗后 min_turns 内不会再交接、every_n_turns=3 时三轮才写一条记忆、Markdown 导出内容
+- [x] 世界书读取改成 核心 / 词条 / 语料 三份；词条解析 `keys`、`priority`；保留旧格式兼容
+- [x] 拼上下文：核心 + 命中词条 + 抽到的语料；守门人只看核心和命中词条
+- [x] 配置：`character.name`、`character.player_name`、`worldbook.*`、`handoff.min_turns`、`inflow.every_n_turns`
+- [x] 守门人、流入的 prompt 用 `character.name` 和 `character.player_name`，不再写死“这个角色”“玩家”
+- [x] 交接：换窗后至少 `handoff.min_turns` 句才允许再换
+- [x] 流入：支持每 N 轮总结一次；交接前没攒满的先总结掉
+- [x] `GET /export?format=markdown`；网页导出给两个选项
+- [x] README 加一张“每说一句调几次模型”的对照表
+- [x] 测试覆盖：关键词命中 / 不命中、超出 entry_budget 时按 priority 取舍、语料抽样数量、旧格式兼容、换窗后 min_turns 内不会再交接、every_n_turns=3 时三轮才写一条记忆、Markdown 导出内容
 
 ### M2 · 第二档：他会想起来
 

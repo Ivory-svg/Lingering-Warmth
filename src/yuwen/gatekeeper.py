@@ -30,10 +30,24 @@ class GatekeeperResult:
 
 
 class GatekeeperService:
-    def __init__(self, store: Store, worldbook: WorldbookReader, llm: GatekeeperModel):
+    def __init__(
+        self,
+        store: Store,
+        worldbook: WorldbookReader,
+        llm: GatekeeperModel,
+        *,
+        scan_depth: int = 4,
+        entry_budget: int = 3000,
+        character_name: str = "他",
+        player_name: str = "你",
+    ):
         self.store = store
         self.worldbook = worldbook
         self.llm = llm
+        self.scan_depth = scan_depth
+        self.entry_budget = entry_budget
+        self.character_name = character_name
+        self.player_name = player_name
         self._template = (
             files("yuwen.prompts")
             .joinpath("ooc-gatekeeper.md")
@@ -42,11 +56,21 @@ class GatekeeperService:
 
     def _prompt(self, reply: str, recent: list[dict[str, str]]) -> str:
         recent_text = "\n".join(
-            f"{message['role']}：{message['content']}" for message in recent[-6:]
+            f"{self.player_name if message['role'] == 'user' else self.character_name}："
+            f"{message['content']}"
+            for message in recent[-6:]
         ) or "暂无"
+        entries = self.worldbook.match_entries(
+            [message["content"] for message in recent],
+            scan_depth=self.scan_depth,
+            entry_budget=self.entry_budget,
+        )
+        worldbook_text = "\n\n".join(
+            [self.worldbook.core(), *(f"词条：{entry.name}\n{entry.content}" for entry in entries)]
+        )
         return (
-            self._template.replace("{角色名}", "这个角色")
-            .replace("{世界书}", self.worldbook.read())
+            self._template.replace("{角色名}", self.character_name)
+            .replace("{世界书}", worldbook_text)
             .replace("{重铸层变化，没有则写“暂无”}", "暂无")
             .replace("{最近 6 条原话}", recent_text)
             .replace("{回复}", reply)
@@ -106,10 +130,9 @@ class GatekeeperService:
             reason=reason,
         )
 
-    @staticmethod
-    def _recent_rows(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    def _recent_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, str]]:
         return [
-            {"role": str(row["role"]), "content": str(row["content"])}
+            {"role": str(row["role"]), "content": self.store.visible_message_content(row)}
             for row in rows
         ]
 
@@ -124,7 +147,8 @@ class GatekeeperService:
         recent = self._recent_rows(
             self.store.list_tail_messages(int(message["session_id"]), 6)
         )
-        reviewed = await self.review(str(message["content"]), recent)
+        visible_content = self.store.visible_message_content(message)
+        reviewed = await self.review(visible_content, recent)
         if player_rewrite is None:
             if reviewed.verdict == "in_character":
                 return GatekeeperResult(
@@ -144,7 +168,7 @@ class GatekeeperService:
         note_id = self.save_note(
             source="player",
             message_id=message_id,
-            original=str(message["content"]),
+            original=visible_content,
             rewritten=rewritten,
             reason=reason,
         )

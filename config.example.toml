@@ -7,12 +7,23 @@ small_model = ""
 context_limit = 64000
 
 [character]
+name = "他"
+player_name = "你"
 prompt_file = "worldbook/core.md"
 worldbook_dir = "worldbook"
+
+[worldbook]
+scan_depth = 4
+entry_budget = 3000
+corpus_sample = 8
 
 [handoff]
 trigger_ratio = 0.75
 raw_tail = 20
+min_turns = 20
+
+[inflow]
+every_n_turns = 1
 
 [gatekeeper]
 pre_send = true

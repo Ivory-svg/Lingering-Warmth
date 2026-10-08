@@ -16,10 +16,16 @@ class ContextBuilder:
         worldbook: WorldbookReader,
         *,
         voice_notes_limit: int = 10,
+        scan_depth: int = 4,
+        entry_budget: int = 3000,
+        corpus_sample: int = 8,
     ):
         self.store = store
         self.worldbook = worldbook
         self.voice_notes_limit = voice_notes_limit
+        self.scan_depth = scan_depth
+        self.entry_budget = entry_budget
+        self.corpus_sample = corpus_sample
 
     def _voice_notes_message(self) -> dict[str, str] | None:
         notes = self.store.list_voice_notes(
@@ -62,12 +68,11 @@ class ContextBuilder:
             result.extend(self._as_model_messages(self.store.get_messages_by_ids(raw_ids)))
         return result
 
-    @staticmethod
-    def _as_model_messages(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    def _as_model_messages(self, rows: list[dict[str, Any]]) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
         for row in rows:
             role = str(row["role"])
-            content = str(row["content"])
+            content = self.store.visible_message_content(row)
             if role == "event":
                 role = "user"
                 content = f"[事件] {content}"
@@ -78,12 +83,38 @@ class ContextBuilder:
         session = self.store.get_session(session_id)
         if session is None:
             raise ValueError(f"找不到窗口：{session_id}")
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": self.worldbook.read()}
+        handoff_messages = self._handoff_messages(session)
+        current_messages = self._as_model_messages(self.store.list_messages(session_id))
+        recent = [
+            message["content"]
+            for message in [*handoff_messages, *current_messages]
+            if message["role"] in {"user", "assistant"}
         ]
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": self.worldbook.core()}
+        ]
+        for entry in self.worldbook.match_entries(
+            recent,
+            scan_depth=self.scan_depth,
+            entry_budget=self.entry_budget,
+        ):
+            messages.append(
+                {"role": "system", "content": f"词条：{entry.name}\n{entry.content}"}
+            )
+        corpus = self.worldbook.sample_corpus(self.corpus_sample)
+        if corpus:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "参考这些句子的感觉，用他的方式说新的话，不要原句复述：\n"
+                        + "\n".join(corpus)
+                    ),
+                }
+            )
         voice_notes = self._voice_notes_message()
         if voice_notes is not None:
             messages.append(voice_notes)
-        messages.extend(self._handoff_messages(session))
-        messages.extend(self._as_model_messages(self.store.list_messages(session_id)))
+        messages.extend(handoff_messages)
+        messages.extend(current_messages)
         return messages

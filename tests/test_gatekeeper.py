@@ -181,3 +181,142 @@ def test_player_rewrite_is_kept_even_when_guard_disagrees(tmp_path: Path) -> Non
     assert result.verdict == "ooc"
     assert result.rewritten == "玩家自己的改法"
     assert result.voice_note_id is not None
+
+
+def test_overturn_gatekeeper_note_restores_reply_without_changing_raw_message(
+    tmp_path: Path,
+) -> None:
+    config, store, books = make_parts(tmp_path)
+    session_id = store.create_session()
+    message_id = store.add_message(
+        session_id, "assistant", "……今天怎么没来。", meta={"ooc_rewritten": True}
+    )
+    note_id = store.add_voice_note(
+        source="gatekeeper",
+        message_id=message_id,
+        original="我好想你！",
+        rewritten="……今天怎么没来。",
+        reason="太直白",
+    )
+    app = create_app(config, store=store, llm=FakeLLM(), worldbook=books)
+
+    with TestClient(app) as client:
+        response = client.post(
+            f"/voice-notes/{note_id}/overturn", json={"note": "他就是会这样说"}
+        )
+        repeated = client.post(f"/voice-notes/{note_id}/overturn", json={"note": "不覆盖"})
+        history = client.get("/messages")
+
+    expected = {"message_id": message_id, "content": "我好想你！", "restored": True}
+    assert response.status_code == 200
+    assert response.json() == expected
+    assert repeated.json() == expected
+    note = store.list_voice_notes()[0]
+    assert note["active"] == 0
+    assert note["overturned_at"] is not None
+    assert note["overturn_note"] == "他就是会这样说"
+    message = store.get_message(message_id)
+    assert message["content"] == "……今天怎么没来。"  # type: ignore[index]
+    assert json.loads(message["meta"])["restored"] is True  # type: ignore[index]
+    assert history.json()[-1]["content"] == "我好想你！"
+    assert history.json()[-1]["ooc"] is None
+    context = ContextBuilder(store, books).build(session_id)
+    assert context[-1] == {"role": "assistant", "content": "我好想你！"}
+
+
+def test_overturn_player_note_only_disables_note(tmp_path: Path) -> None:
+    config, store, books = make_parts(tmp_path)
+    session_id = store.create_session()
+    message_id = store.add_message(session_id, "assistant", "先坐下。")
+    note_id = store.add_voice_note(
+        source="player",
+        message_id=message_id,
+        original="先坐下。",
+        rewritten="别逞强，坐下。",
+        reason="玩家觉得太冷淡",
+    )
+    app = create_app(config, store=store, llm=FakeLLM(), worldbook=books)
+
+    with TestClient(app) as client:
+        result = client.post(f"/voice-notes/{note_id}/overturn", json={})
+        repeated = client.post(f"/voice-notes/{note_id}/overturn", json={"note": "新备注"})
+        history = client.get("/messages")
+        missing = client.post("/voice-notes/999/overturn", json={})
+
+    expected = {"message_id": message_id, "content": "先坐下。", "restored": False}
+    assert result.status_code == 200
+    assert result.json() == expected
+    assert repeated.json() == expected
+    assert history.json()[-1]["content"] == "先坐下。"
+    assert history.json()[-1]["ooc"] is None
+    assert missing.status_code == 404
+    note = store.get_voice_note(note_id)
+    assert note["active"] == 0  # type: ignore[index]
+    assert note["overturned_at"] is not None  # type: ignore[index]
+    assert note["overturn_note"] is None  # type: ignore[index]
+    assert store.get_message(message_id)["content"] == "先坐下。"  # type: ignore[index]
+
+
+def test_gatekeeper_sees_matched_entry_but_not_corpus(tmp_path: Path) -> None:
+    _, store, _ = make_parts(tmp_path)
+    directory = tmp_path / "new_worldbook"
+    entries = directory / "entries"
+    entries.mkdir(parents=True)
+    (directory / "core.md").write_text("角色核心", encoding="utf-8")
+    (directory / "corpus.md").write_text("不该给守门人看的台词", encoding="utf-8")
+    (entries / "father.md").write_text(
+        "---\nkeys: 爸爸\n---\n父亲是钟表匠", encoding="utf-8"
+    )
+    from yuwen.config import CharacterConfig
+    from yuwen.worldbook import WorldbookReader
+
+    books = WorldbookReader(CharacterConfig(directory / "core.md", directory))
+    llm = FakeLLM('{"verdict":"in_character"}')
+    gatekeeper = GatekeeperService(
+        store, books, llm, character_name="林舟", player_name="小雨"
+    )
+
+    result = asyncio.run(gatekeeper.review("先坐下。", [{"role": "user", "content": "你爸爸呢？"}]))
+
+    prompt = llm.calls[0][0]["content"]
+    assert result.verdict == "in_character"
+    assert "角色核心" in prompt
+    assert "父亲是钟表匠" in prompt
+    assert "不该给守门人看的台词" not in prompt
+    assert "林舟会说的话" in prompt
+    assert "小雨：你爸爸呢？" in prompt
+
+
+def test_player_reflag_after_restore_keeps_visible_original(tmp_path: Path) -> None:
+    config, store, books = make_parts(tmp_path)
+    session_id = store.create_session()
+    message_id = store.add_message(session_id, "assistant", "……今天怎么没来。")
+    gatekeeper_note_id = store.add_voice_note(
+        source="gatekeeper",
+        message_id=message_id,
+        original="我好想你！",
+        rewritten="……今天怎么没来。",
+        reason="太直白",
+    )
+    store.overturn_voice_note(gatekeeper_note_id, "他会这么说")
+    llm = FakeLLM('{"verdict":"in_character"}')
+    app = create_app(config, store=store, llm=llm, worldbook=books)
+
+    with TestClient(app) as client:
+        flagged = client.post(
+            "/ooc/flag", json={"message_id": message_id, "player_rewrite": "我也想你。"}
+        )
+        player_note_id = flagged.json()["voice_note_id"]
+        overturned = client.post(f"/voice-notes/{player_note_id}/overturn", json={})
+        history = client.get("/messages")
+
+    assert store.get_voice_note(player_note_id)["original"] == "我好想你！"  # type: ignore[index]
+    assert "我好想你！" in llm.calls[0][0]["content"]
+    assert overturned.json() == {
+        "message_id": message_id,
+        "content": "我好想你！",
+        "restored": False,
+    }
+    assert history.json()[-1]["content"] == "我好想你！"
+    assert history.json()[-1]["ooc"] is None
+    assert store.get_message(message_id)["content"] == "……今天怎么没来。"  # type: ignore[index]
