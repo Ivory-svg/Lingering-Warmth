@@ -39,12 +39,14 @@ lingering-warmth/
 │   ├── context.py             # 拼装每轮发给模型的上下文
 │   ├── chat.py                # 一轮对话的总流程
 │   ├── inflow.py              # 流入：每轮存一条记忆
+│   ├── embedder.py            # 新记忆算向量、启动时补算
+│   ├── surfacing.py           # 浮现：相似检索与遗忘现算
 │   ├── handoff.py             # 交接：写交接、新窗口带入
 │   ├── gatekeeper.py          # OOC 守门人与语感笔记
 │   ├── export.py              # 完整导出
 │   ├── api.py                 # HTTP 接口
 │   └── prompts/               # 运行时用的 prompt 文本（从 docs/prompts 复制）
-│   # 第二档以后再加：surfacing.py diary.py decay.py keepsakes.py
+│   # 第二档后续再加：diary.py keepsakes.py
 │   # 第三档以后再加：recast.py dream.py wake.py anniversaries.py
 └── tests/
 ```
@@ -96,6 +98,8 @@ api → chat → context → worldbook, store
            → gatekeeper → llm, store, worldbook
            → handoff → llm, store
            → inflow → llm, store
+           → surfacing → store, llm（可选 embedding）
+api → embedder → store, llm（可选 embedding）
 api → export → store
 ```
 

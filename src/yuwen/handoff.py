@@ -26,6 +26,7 @@ class HandoffModel(Protocol):
 class HandoffResult:
     session_id: int
     happened: bool
+    memory_id: int | None = None
 
 
 class HandoffService:
@@ -113,7 +114,7 @@ class HandoffService:
             raw_tail_message_ids=tail_ids,
             created_at=created_at,
         )
-        self.store.add_memory(
+        memory_id = self.store.add_memory(
             kind="handoff",
             happened_at=created_at,
             summary=f"{content['doing']}；{content['where_we_are']}",
@@ -128,4 +129,4 @@ class HandoffService:
             continues_handoff_id=handoff_id,
             started_at=created_at,
         )
-        return HandoffResult(session_id=new_session_id, happened=True)
+        return HandoffResult(session_id=new_session_id, happened=True, memory_id=memory_id)

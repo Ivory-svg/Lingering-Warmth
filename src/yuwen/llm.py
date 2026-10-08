@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from yuwen.config import LLMConfig
+from yuwen.config import EmbeddingConfig, LLMConfig
 
 
 class LLMError(RuntimeError):
@@ -119,3 +119,81 @@ class LLMClient:
             except (json.JSONDecodeError, ValueError) as exc:
                 parse_error = exc
         raise LLMResponseError("模型连续返回了无效 JSON") from parse_error
+
+
+class EmbeddingClient:
+    """用独立的 OpenAI 兼容地址批量生成记忆向量。"""
+
+    def __init__(
+        self,
+        config: EmbeddingConfig,
+        *,
+        client: httpx.AsyncClient | None = None,
+        sleep: Sleep = asyncio.sleep,
+    ):
+        self.config = config
+        self._client = client or httpx.AsyncClient(timeout=60)
+        self._owns_client = client is None
+        self._sleep = sleep
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+    @staticmethod
+    def _vectors(data: Any, count: int) -> list[list[float]]:
+        items = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(items, list) or len(items) != count:
+            raise LLMResponseError("embedding 响应数量不匹配")
+        vectors: list[list[float] | None] = [None] * count
+        dimensions: int | None = None
+        for item in items:
+            if not isinstance(item, dict):
+                raise LLMResponseError("embedding 响应条目无效")
+            index = item.get("index")
+            values = item.get("embedding")
+            if (
+                not isinstance(index, int)
+                or isinstance(index, bool)
+                or not 0 <= index < count
+                or vectors[index] is not None
+                or not isinstance(values, list)
+                or not values
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value)
+                    for value in values
+                )
+            ):
+                raise LLMResponseError("embedding 响应向量无效")
+            if dimensions is not None and len(values) != dimensions:
+                raise LLMResponseError("embedding 向量维度不一致")
+            dimensions = len(values)
+            vectors[index] = [float(value) for value in values]
+        if any(vector is None for vector in vectors):
+            raise LLMResponseError("embedding 响应缺少条目")
+        return [vector for vector in vectors if vector is not None]
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        if not self.config.base_url or not texts:
+            return []
+        headers = {"Content-Type": "application/json"}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                response = await self._client.post(
+                    f"{self.config.base_url.rstrip('/')}/embeddings",
+                    headers=headers,
+                    json={"model": self.config.model, "input": list(texts)},
+                )
+                response.raise_for_status()
+                return self._vectors(response.json(), len(texts))
+            except (httpx.HTTPError, LLMResponseError, ValueError, TypeError) as exc:
+                last_error = exc
+                if attempt == 2:
+                    break
+                await self._sleep(2**attempt)
+        raise LLMError("embedding 调用在重试后仍然失败") from last_error

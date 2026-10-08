@@ -9,6 +9,7 @@ from yuwen.context import ContextBuilder
 from yuwen.gatekeeper import GatekeeperService
 from yuwen.handoff import HandoffService
 from yuwen.store import Store
+from yuwen.surfacing import SurfacingService
 
 
 class ChatModel(Protocol):
@@ -30,10 +31,12 @@ class ChatResult:
     ooc_rewritten: bool = False
     ooc: dict[str, str | int] | None = None
     handoff_happened: bool = False
+    handoff_memory_id: int | None = None
 
     def as_dict(self) -> dict[str, object]:
         data = asdict(self)
         data.pop("user_message_id")
+        data.pop("handoff_memory_id")
         return data
 
 
@@ -46,12 +49,14 @@ class ChatService:
         *,
         handoff: HandoffService | None = None,
         gatekeeper: GatekeeperService | None = None,
+        surfacing: SurfacingService | None = None,
     ):
         self.store = store
         self.context = context
         self.llm = llm
         self.handoff = handoff
         self.gatekeeper = gatekeeper
+        self.surfacing = surfacing
 
     async def handle_message(self, content: str) -> ChatResult:
         """保存原话、生成并保存回复。"""
@@ -63,12 +68,18 @@ class ChatService:
         user_message_id = self.store.add_message(session_id, "user", content)
         messages = self.context.build(session_id)
         handoff_happened = False
+        handoff_memory_id = None
         if self.handoff is not None:
             handoff = await self.handoff.maybe_handoff(session_id, messages)
             session_id = handoff.session_id
             handoff_happened = handoff.happened
-            if handoff_happened:
-                messages = self.context.build(session_id)
+            handoff_memory_id = handoff.memory_id
+        if handoff_happened or self.surfacing is not None:
+            surfaced = (
+                await self.surfacing.recall(session_id, content)
+                if self.surfacing is not None else None
+            )
+            messages = self.context.build(session_id, surfaced=surfaced)
         original_reply = await self.llm.chat(messages)
         gatekeeper_result = None
         if self.gatekeeper is not None:
@@ -121,4 +132,5 @@ class ChatService:
             ooc_rewritten=ooc_rewritten,
             ooc=ooc,
             handoff_happened=handoff_happened,
+            handoff_memory_id=handoff_memory_id,
         )

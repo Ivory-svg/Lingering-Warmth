@@ -56,7 +56,7 @@ def build_markdown_export(
     for memory in store.list_table("memories"):
         lines.append(
             f"- {_display_time(memory['happened_at'])} · {memory['emotion_text']} · "
-            f"{memory['summary']}（确定度 {memory['certainty']}）"
+            f"{memory['summary']}（确定度 {memory['certainty']}，被想起 {memory['recall_count']} 次）"
         )
     lines.extend(["", "## 交接", ""])
     for handoff in store.list_table("handoffs"):

@@ -59,15 +59,15 @@
 
 见 [design.md](design.md)「浮现怎么找」「遗忘」，接口见 [interfaces.md](interfaces.md) 的 llm、embedder、surfacing。
 
-- [ ] 迁移 003：`memories` 加 `embedding_model`、`recall_count`
-- [ ] 配置：`embedding.*`、`surfacing.*`、`decay.*`；依赖加 numpy
-- [ ] llm：OpenAI 兼容的 embedding 请求；没配时视为关闭
-- [ ] embedder：写记忆后算向量；启动时补算缺失的和换了模型的
-- [ ] surfacing：候选过滤、余弦相似度、字面匹配退路、遗忘现算、排序取舍、更新 `last_recalled_at` 和 `recall_count`
-- [ ] context：浮现的记忆插在交接摘要和交接原话之间
-- [ ] Markdown 导出里的记忆显示被想起几次
-- [ ] README：embedding 二选一（在线平台 / 不配），本地 Ollama 只在进阶里提一句，不写步骤
-- [ ] 测试覆盖：用假的 embedding（例如按关键词生成固定向量）测相似排序；字面匹配退路；封存的和眼前的不浮现；遗忘让旧记忆排后但不消失；被想起后 recall_count 增加、下次排名上升；embedding 失败时退回字面匹配；换模型后补算
+- [x] 迁移 003：`memories` 加 `embedding_model`、`recall_count`
+- [x] 配置：`embedding.*`、`surfacing.*`、`decay.*`；依赖加 numpy
+- [x] llm：OpenAI 兼容的 embedding 请求；没配时视为关闭
+- [x] embedder：写记忆后算向量；启动时补算缺失的和换了模型的
+- [x] surfacing：候选过滤、余弦相似度、字面匹配退路、遗忘现算、排序取舍、更新 `last_recalled_at` 和 `recall_count`
+- [x] context：浮现的记忆插在交接摘要和交接原话之间
+- [x] Markdown 导出里的记忆显示被想起几次
+- [x] README：embedding 二选一（在线平台 / 不配），本地 Ollama 只在进阶里提一句，不写步骤
+- [x] 测试覆盖：用假的 embedding（例如按关键词生成固定向量）测相似排序；字面匹配退路；封存的和眼前的不浮现；遗忘让旧记忆排后但不消失；被想起后 recall_count 增加、下次排名上升；embedding 失败时退回字面匹配；换模型后补算
 
 #### M2.2 · 之后
 

@@ -25,6 +25,24 @@ min_turns = 20
 [inflow]
 every_n_turns = 1
 
+[embedding]
+# 留空就按字面找记忆；想按意思找时填 OpenAI 兼容的 embedding 地址。
+base_url = ""
+api_key = ""
+model = "bge-m3"
+batch_size = 32
+
+[surfacing]
+enabled = true
+query_depth = 2
+top_k = 4
+max_chars = 1500
+min_similarity = 0.45
+clear_threshold = 0.7
+
+[decay]
+base_days = 7
+
 [gatekeeper]
 pre_send = true
 voice_notes_in_context = 10

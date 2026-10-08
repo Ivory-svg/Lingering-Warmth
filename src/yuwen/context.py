@@ -79,7 +79,7 @@ class ContextBuilder:
             messages.append({"role": role, "content": content})
         return messages
 
-    def build(self, session_id: int) -> list[dict[str, str]]:
+    def build(self, session_id: int, *, surfaced: str | None = None) -> list[dict[str, str]]:
         session = self.store.get_session(session_id)
         if session is None:
             raise ValueError(f"找不到窗口：{session_id}")
@@ -115,6 +115,12 @@ class ContextBuilder:
         voice_notes = self._voice_notes_message()
         if voice_notes is not None:
             messages.append(voice_notes)
+        if surfaced:
+            recall_message = {"role": "system", "content": surfaced}
+            if handoff_messages and handoff_messages[0]["role"] == "system":
+                handoff_messages.insert(1, recall_message)
+            else:
+                handoff_messages.insert(0, recall_message)
         messages.extend(handoff_messages)
         messages.extend(current_messages)
         return messages
