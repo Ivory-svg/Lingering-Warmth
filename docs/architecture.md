@@ -123,6 +123,27 @@ api → export → store
 | `handoff.raw_tail` | 20 | 新窗口带上一窗多少条原话 |
 | `handoff.min_turns` | 20 | 换窗后玩家至少说几句，才允许再交接。只是防止连续换窗的保险，正常要几百句才会换一次窗 |
 | `inflow.every_n_turns` | 1 | 每几轮总结一次记忆；调大省钱 |
+| `embedding.base_url` | 空 | OpenAI 兼容的 embedding 地址；留空 = 不用 embedding，浮现退回字面匹配 |
+| `embedding.api_key` | 空 | 本地 Ollama 可随便填 |
+| `embedding.model` | `bge-m3` | |
+| `embedding.batch_size` | 32 | 补算时一批几条 |
+| `surfacing.enabled` | true | 关掉就不浮现 |
+| `surfacing.query_depth` | 2 | 拿最近几条原话去找 |
+| `surfacing.top_k` | 4 | 一次最多递几条 |
+| `surfacing.max_chars` | 1500 | 递过去的总字数上限 |
+| `surfacing.min_similarity` | 0.45 | 按意思找时的门槛；字面匹配固定用 0.2 |
+| `surfacing.clear_threshold` | 0.7 | 确定度到多少算“记得清楚” |
+| `decay.base_days` | 7 | 遗忘的基础天数；越大忘得越慢 |
+
+**embedding 的几种接法**（都走同一个 OpenAI 兼容接口，只改配置）：
+
+| 接法 | `base_url` 例 | 说明 |
+|---|---|---|
+| 本地 Ollama | `http://localhost:11434/v1` | 先 `ollama pull bge-m3`。免费，记忆不出门，需要电脑一直开着 |
+| 在线服务 | 例如 SiliconFlow、OpenRouter 等提供 bge-m3 的平台 | 便宜，按量计费；具体价格和免费额度以平台为准 |
+| 不配 | 留空 | 浮现按字面找，不额外花钱 |
+
+对话模型（例如 DeepSeek）不一定提供 embedding，所以单独配置。
 | `gatekeeper.pre_send` | true | 发出前是否自查 |
 | `gatekeeper.voice_notes_in_context` | 10 | 拼上下文时带几条语感笔记 |
 | `storage.db_path` | `data/yuwen.db` | |
