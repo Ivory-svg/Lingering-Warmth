@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import logging
@@ -23,6 +24,12 @@ _INTRO = (
     "这些是你此刻自然想起来的往事。不要复述，不要列出来，用得上就自然带进对话；\n"
     "标着“记不太清”的，要说“好像是”“我记得大概是”，不能说得很肯定。"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class SurfacedResult:
+    text: str
+    memory_ids: tuple[int, ...]
 
 
 def _bigrams(text: str) -> set[str]:
@@ -127,8 +134,8 @@ class SurfacingService:
             line += f"原话「{memory['quote']}」"
         return line
 
-    async def recall(self, session_id: int, player_text: str) -> str | None:
-        """失败时退回字面匹配；字面也失败就不打断对话。"""
+    async def find(self, session_id: int, player_text: str) -> SurfacedResult | None:
+        """挑选记忆但暂不计次，供交接前后决定最终带入内容。"""
 
         if not self.config.enabled or self.config.max_chars <= len(_INTRO) + 1:
             return None
@@ -187,8 +194,23 @@ class SurfacingService:
                     break
             if not lines:
                 return None
-            self.store.mark_memories_recalled(selected_ids, recalled_at=now.isoformat())
-            return _INTRO + "\n" + "\n".join(lines)
+            return SurfacedResult(_INTRO + "\n" + "\n".join(lines), tuple(selected_ids))
         except Exception as exc:
             logger.warning("字面浮现失败，本轮跳过：%s", exc)
             return None
+
+    def mark_recalled(self, *results: SurfacedResult | None) -> None:
+        ids = sorted({memory_id for result in results if result for memory_id in result.memory_ids})
+        if not ids:
+            return
+        try:
+            self.store.mark_memories_recalled(ids, recalled_at=self.clock().isoformat())
+        except Exception as exc:
+            logger.warning("记录记忆浮现失败，继续本轮对话：%s", exc)
+
+    async def recall(self, session_id: int, player_text: str) -> str | None:
+        """直接浮现一轮；失败时不打断对话。"""
+
+        result = await self.find(session_id, player_text)
+        self.mark_recalled(result)
+        return result.text if result else None

@@ -66,20 +66,31 @@ class ChatService:
         session = self.store.get_or_create_active_session()
         session_id = int(session["id"])
         user_message_id = self.store.add_message(session_id, "user", content)
-        messages = self.context.build(session_id)
+        first_recall = (
+            await self.surfacing.find(session_id, content)
+            if self.surfacing is not None else None
+        )
+        messages = self.context.build(
+            session_id, surfaced=first_recall.text if first_recall else None
+        )
         handoff_happened = False
         handoff_memory_id = None
+        final_recall = None
         if self.handoff is not None:
             handoff = await self.handoff.maybe_handoff(session_id, messages)
             session_id = handoff.session_id
             handoff_happened = handoff.happened
             handoff_memory_id = handoff.memory_id
-        if handoff_happened or self.surfacing is not None:
-            surfaced = (
-                await self.surfacing.recall(session_id, content)
+        if handoff_happened:
+            final_recall = (
+                await self.surfacing.find(session_id, content)
                 if self.surfacing is not None else None
             )
-            messages = self.context.build(session_id, surfaced=surfaced)
+            messages = self.context.build(
+                session_id, surfaced=final_recall.text if final_recall else None
+            )
+        if self.surfacing is not None:
+            self.surfacing.mark_recalled(first_recall, final_recall)
         original_reply = await self.llm.chat(messages)
         gatekeeper_result = None
         if self.gatekeeper is not None:

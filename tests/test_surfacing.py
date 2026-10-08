@@ -7,8 +7,13 @@ from fastapi.testclient import TestClient
 import numpy as np
 
 from test_chat_api import FakeLLM, make_parts
+from test_handoff import SequenceLLM
 from yuwen.api import create_app
+from yuwen.chat import ChatService
 from yuwen.config import DecayConfig, EmbeddingConfig, SurfacingConfig
+from yuwen.context import ContextBuilder
+from yuwen.handoff import HandoffService
+from yuwen.llm import estimate_tokens
 from yuwen.store import Store
 from yuwen.surfacing import SurfacingService
 
@@ -225,4 +230,29 @@ def test_chat_context_includes_recalled_memory(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert any("下雨没带伞" in item["content"] and "往事" in item["content"]
                for item in llm.calls[0])
+    assert store.get_memory(old_memory)["recall_count"] == 1  # type: ignore[index]
+
+
+def test_handoff_threshold_includes_recall_and_counts_it_once(tmp_path: Path) -> None:
+    _, store, books = make_parts(tmp_path)
+    session_id = store.create_session()
+    old_memory = memory(store, session_id, "雨伞")
+    context = ContextBuilder(store, books)
+    without_recall = estimate_tokens(
+        "\n".join(item["content"] for item in context.build(session_id))
+    )
+    llm = SequenceLLM([
+        '{"doing":"聊天","where_we_are":"说起雨伞","emotion":"平静"}',
+        "把伞带上。",
+    ])
+    handoff = HandoffService(
+        store, llm, context_limit=without_recall + 30, trigger_ratio=1, raw_tail=20
+    )
+    chat = ChatService(store, context, llm, handoff=handoff, surfacing=service(store))
+
+    result = asyncio.run(chat.handle_message("雨伞"))
+
+    assert result.handoff_happened
+    assert "自然想起来的往事" in str(llm.calls[0][0])
+    assert "自然想起来的往事" in str(llm.calls[1][0])
     assert store.get_memory(old_memory)["recall_count"] == 1  # type: ignore[index]
