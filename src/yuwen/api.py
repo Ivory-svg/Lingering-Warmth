@@ -137,6 +137,7 @@ def create_app(
     async def lifespan(_: FastAPI):
         database.initialize()
         books.core()
+        books.warn_oversized_entries(config.worldbook.entry_budget)
         yield
         if isinstance(model, LLMClient):
             await model.aclose()

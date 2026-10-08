@@ -135,6 +135,21 @@ class WorldbookReader:
 
         return self.core()
 
+    def warn_oversized_entries(self, entry_budget: int) -> None:
+        """启动时提醒玩家拆短永远放不进预算的词条。"""
+
+        self._load()
+        for entry in self._entries:
+            length = len(entry.content)
+            if length > entry_budget:
+                logger.warning(
+                    "世界书词条「%s」有 %d 字，超过 entry_budget=%d，"
+                    "永远不会被带入；请拆短词条",
+                    entry.name,
+                    length,
+                    entry_budget,
+                )
+
     def match_entries(
         self,
         recent: Sequence[str],

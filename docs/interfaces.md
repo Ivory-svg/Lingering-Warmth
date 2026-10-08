@@ -174,11 +174,12 @@ priority: 5
 - `keys`：逗号分隔，中英文逗号都认。必填，没写 keys 的词条不会被带入，并在启动日志里提醒
 - `priority`：整数，默认 0，越大越先带
 - 不用引入 YAML 库，只解析这两个字段
+- 启动时如果某个词条正文超过 `worldbook.entry_budget`，在日志里提醒玩家拆短；这个词条永远不会被带入
 
 | 能力 | 输入 | 输出 |
 |---|---|---|
 | 核心 | — | `core.md` 全文。文件不存在时报错，启动失败 |
-| 匹配词条 | 最近 `worldbook.scan_depth` 条原话（默认 4，玩家和他的都算） | 命中的词条，按 priority 从高到低；总字数不超过 `worldbook.entry_budget`（默认 3000），超出的丢掉低优先级的 |
+| 匹配词条 | 最近 `worldbook.scan_depth` 条原话（默认 4，玩家和他的都算） | 命中的词条，按 priority 从高到低；总字数不超过 `worldbook.entry_budget`（默认 3000）。放不下的词条跳过，继续尝试较短的低优先级词条 |
 | 抽语料 | — | 随机 `worldbook.corpus_sample` 句（默认 8）；语料不够就全给 |
 | 缓存 | 文件修改时间变了才重读 | |
 

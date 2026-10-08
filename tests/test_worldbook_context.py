@@ -1,9 +1,13 @@
 import os
+from dataclasses import replace
 from pathlib import Path
 
+from fastapi.testclient import TestClient
 import pytest
 
-from yuwen.config import CharacterConfig
+from test_chat_api import FakeLLM, make_parts
+from yuwen.api import create_app
+from yuwen.config import CharacterConfig, WorldbookConfig
 from yuwen.context import ContextBuilder
 from yuwen.store import Store
 from yuwen.worldbook import WorldbookReader
@@ -58,6 +62,42 @@ def test_worldbook_matches_entries_by_keys_and_priority_with_budget(tmp_path: Pa
         ["你爸爸的钟表店呢？"], entry_budget=len("父亲是钟表匠")
     )] == ["father"]
     assert reader.match_entries(["今天天气好"]) == []
+
+
+def test_worldbook_warns_at_startup_for_entry_that_never_fits_budget(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    config, store, _ = make_parts(tmp_path)
+    directory = tmp_path / "worldbook"
+    entries = directory / "entries"
+    entries.mkdir(parents=True)
+    (directory / "core.md").write_text("角色核心", encoding="utf-8")
+    (entries / "long.md").write_text(
+        "---\nkeys: 爸爸\npriority: 9\n---\n这条内容超过预算",
+        encoding="utf-8",
+    )
+    (entries / "short.md").write_text(
+        "---\nkeys: 爸爸\npriority: 1\n---\n短词条",
+        encoding="utf-8",
+    )
+    config = replace(
+        config,
+        character=CharacterConfig(directory / "core.md", directory),
+        worldbook=WorldbookConfig(entry_budget=4),
+    )
+    reader = WorldbookReader(config.character)
+    app = create_app(config, store=store, llm=FakeLLM(), worldbook=reader)
+
+    with caplog.at_level("WARNING"), TestClient(app):
+        pass
+
+    assert "long" in caplog.text
+    assert "超过 entry_budget=4" in caplog.text
+    assert "请拆短词条" in caplog.text
+    assert "short" not in caplog.text
+    assert [entry.name for entry in reader.match_entries(
+        ["你爸爸呢？"], entry_budget=config.worldbook.entry_budget
+    )] == ["short"]
 
 
 def test_worldbook_samples_corpus_and_ignores_comments(tmp_path: Path) -> None:

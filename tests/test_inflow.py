@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 from test_chat_api import make_parts
 from yuwen.api import create_app
@@ -196,4 +197,68 @@ def test_inflow_direct_calls_keep_pending_turns_and_do_not_duplicate(tmp_path: P
     assert len(store.list_table("memories")) == 1
     assert json.loads(store.get_memory(memory_id)["source_message_ids"]) == [  # type: ignore[index]
         user_one, assistant_one, user_two, assistant_two
+    ]
+
+
+class SlowFirstInflowLLM:
+    def __init__(self):
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.calls = 0
+
+    async def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        small: bool = False,
+        json_response: bool = False,
+    ) -> str:
+        self.calls += 1
+        if self.calls == 1:
+            self.entered.set()
+            await self.release.wait()
+        return '{"summary":"两轮对话","emotion_text":"平静","certainty":0.9}'
+
+
+@pytest.mark.parametrize("second_call", ["process_turn", "flush_pending"])
+def test_concurrent_inflow_calls_write_each_turn_once(
+    tmp_path: Path, second_call: str
+) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    turns = []
+    for number in range(2):
+        user_id = store.add_message(session_id, "user", f"第{number + 1}轮")
+        assistant_id = store.add_message(
+            session_id,
+            "assistant",
+            f"第{number + 1}句",
+            meta={"inflow_user_message_id": user_id},
+        )
+        turns.append((user_id, assistant_id))
+    llm = SlowFirstInflowLLM()
+    service = InflowService(store, llm)
+
+    async def overlap() -> int:
+        first = asyncio.create_task(service.process_turn(*turns[0]))
+        await asyncio.wait_for(llm.entered.wait(), timeout=1)
+        if second_call == "process_turn":
+            second = asyncio.create_task(service.process_turn(*turns[1]))
+        else:
+            second = asyncio.create_task(service.flush_pending(session_id))
+        await asyncio.sleep(0)
+        calls_while_first_waits = llm.calls
+        llm.release.set()
+        await asyncio.gather(first, second)
+        return calls_while_first_waits
+
+    calls_while_first_waits = asyncio.run(overlap())
+    memories = store.list_table("memories")
+    assert calls_while_first_waits == 1
+    assert llm.calls == 2
+    assert len(memories) == 2
+    assert [json.loads(row["source_message_ids"]) for row in memories] == [
+        list(turns[0]),
+        list(turns[1]),
     ]

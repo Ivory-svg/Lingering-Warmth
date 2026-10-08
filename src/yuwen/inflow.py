@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from importlib.resources import files
 import json
 from typing import Any
@@ -32,6 +33,7 @@ class InflowService:
         self.character_name = character_name
         self.player_name = player_name
         self.every_n_turns = every_n_turns
+        self._lock = asyncio.Lock()
         self._template = files("yuwen.prompts").joinpath("inflow.md").read_text(encoding="utf-8")
 
     def _prompt(self, turns: list[tuple[dict[str, Any], dict[str, Any]]]) -> str:
@@ -112,31 +114,33 @@ class InflowService:
     ) -> int | None:
         """攒满配置的轮数再写记忆；单轮调用仍支持旧数据。"""
 
-        user = self.store.get_message(user_message_id)
-        assistant = self.store.get_message(assistant_message_id)
-        if user is None or assistant is None:
-            raise ValueError("流入找不到对应的原话")
-        meta = json.loads(assistant["meta"]) if assistant["meta"] else {}
-        linked_user_id = meta.get("inflow_user_message_id")
-        if linked_user_id is None:
-            meta["inflow_user_message_id"] = user_message_id
-            self.store.update_message_meta(assistant_message_id, meta)
-        elif linked_user_id != user_message_id:
-            raise ValueError("流入的玩家原话与回复不匹配")
-        session_id = int(assistant["session_id"])
-        pending = self.store.list_pending_inflow_turns(session_id)
-        last_memory_id = None
-        while len(pending) >= self.every_n_turns:
-            last_memory_id = await self._summarize(pending[: self.every_n_turns])
+        async with self._lock:
+            user = self.store.get_message(user_message_id)
+            assistant = self.store.get_message(assistant_message_id)
+            if user is None or assistant is None:
+                raise ValueError("流入找不到对应的原话")
+            meta = json.loads(assistant["meta"]) if assistant["meta"] else {}
+            linked_user_id = meta.get("inflow_user_message_id")
+            if linked_user_id is None:
+                meta["inflow_user_message_id"] = user_message_id
+                self.store.update_message_meta(assistant_message_id, meta)
+            elif linked_user_id != user_message_id:
+                raise ValueError("流入的玩家原话与回复不匹配")
+            session_id = int(assistant["session_id"])
             pending = self.store.list_pending_inflow_turns(session_id)
-        return last_memory_id
+            last_memory_id = None
+            while len(pending) >= self.every_n_turns:
+                last_memory_id = await self._summarize(pending[: self.every_n_turns])
+                pending = self.store.list_pending_inflow_turns(session_id)
+            return last_memory_id
 
     async def flush_pending(self, session_id: int) -> list[int]:
         """交接前把本窗口没攒满的完整轮次也写下来。"""
 
-        memory_ids: list[int] = []
-        pending = self.store.list_pending_inflow_turns(session_id)
-        while pending:
-            memory_ids.append(await self._summarize(pending[: self.every_n_turns]))
+        async with self._lock:
+            memory_ids: list[int] = []
             pending = self.store.list_pending_inflow_turns(session_id)
-        return memory_ids
+            while pending:
+                memory_ids.append(await self._summarize(pending[: self.every_n_turns]))
+                pending = self.store.list_pending_inflow_turns(session_id)
+            return memory_ids
