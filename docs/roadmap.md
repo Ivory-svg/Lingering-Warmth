@@ -66,7 +66,7 @@
 - [ ] surfacing：候选过滤、余弦相似度、字面匹配退路、遗忘现算、排序取舍、更新 `last_recalled_at` 和 `recall_count`
 - [ ] context：浮现的记忆插在交接摘要和交接原话之间
 - [ ] Markdown 导出里的记忆显示被想起几次
-- [ ] README：embedding 三种接法（本地 Ollama / 在线 / 不配）
+- [ ] README：embedding 二选一（在线平台 / 不配），本地 Ollama 只在进阶里提一句，不写步骤
 - [ ] 测试覆盖：用假的 embedding（例如按关键词生成固定向量）测相似排序；字面匹配退路；封存的和眼前的不浮现；遗忘让旧记忆排后但不消失；被想起后 recall_count 增加、下次排名上升；embedding 失败时退回字面匹配；换模型后补算
 
 #### M2.2 · 之后
