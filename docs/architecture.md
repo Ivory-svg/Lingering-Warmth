@@ -117,7 +117,7 @@ api → export → store
 | `llm.small_model` | 同 `llm.model` | 流入、守门人用的小模型，省钱 |
 | `llm.context_limit` | 64000 | 模型上下文上限（token） |
 | `character.name` | `他` | 角色名，用在守门人、流入的 prompt 和 Markdown 导出里 |
-| `character.player_name` | `你` | 他怎么称呼玩家 |
+| `character.player_name` | `对方` | 给模型看的文字里怎么称呼玩家：摘要、交接、守门人。建议填他平时叫你的昵称。不要填“你”“我”：模型会把“你”当成它自己 |
 | `character.prompt_file` | `worldbook/core.md` | 世界书核心（旧配置指向 `character.md` 也认） |
 | `character.worldbook_dir` | `worldbook/` | 世界书目录，结构见 interfaces.md |
 | `worldbook.scan_depth` | 4 | 匹配词条时看最近几条原话 |
