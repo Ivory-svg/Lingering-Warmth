@@ -374,5 +374,4 @@ priority: 5
 | `GET /diary?month=2026-10` / `POST /diary/{id}/reply` | 日记日历与回复 | 二 |
 | `POST /memories/{id}/seal` | “这个忘掉吧” | 二 |
 | `GET /wake/pending` | 前端轮询唤醒消息（或改成 WebSocket 推送） | 三 |
-| TTS | 只定义 `text → 音频 URL` 一个接口，不自带实现 | 以后 |
-| 生图 / 生视频 | 只定义 `描述 + 参考图 → 图片或视频 URL` 一个接口，不自带实现；报备用 | 以后 |
+| 唤醒事件对外通知 | 他主动说了一句话时，把内容、原因和“日常”里此刻在做什么推给外部程序（webhook），给声音、形象、报备那个项目用 | 三 |
