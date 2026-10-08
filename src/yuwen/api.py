@@ -129,6 +129,7 @@ def create_app(
         raw_tail=config.handoff.raw_tail,
         min_turns=config.handoff.min_turns,
         before_handoff=inflow_service.flush_pending,
+        player_name=config.character.player_name,
     )
     gatekeeper_service = GatekeeperService(
         database,
@@ -145,7 +146,6 @@ def create_app(
         decay=config.decay,
         embedding=config.embedding,
         client=vector_client,
-        player_name=config.character.player_name,
     )
     chat_service = ChatService(
         database,
@@ -283,7 +283,6 @@ def create_app(
                 build_markdown_export(
                     database,
                     character_name=config.character.name,
-                    player_name=config.character.player_name,
                 ),
                 media_type="text/markdown; charset=utf-8",
                 headers={

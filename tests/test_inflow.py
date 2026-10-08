@@ -85,6 +85,10 @@ def test_inflow_prompt_uses_configured_names(tmp_path: Path) -> None:
     prompt = llm.messages[0][0]["content"]
     assert "小雨：今天加班好累" in prompt
     assert "林舟：先去吃饭，我在。" in prompt
+    assert "玩家写“小雨”，角色写“林舟”" in prompt
+    assert "不要用“他”“她”指代这两个人" in prompt
+    assert "{玩家}" not in prompt
+    assert "{角色名}" not in prompt
 
 
 class BatchLLM:

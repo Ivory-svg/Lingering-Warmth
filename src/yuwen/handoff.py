@@ -40,6 +40,7 @@ class HandoffService:
         raw_tail: int,
         min_turns: int = 20,
         before_handoff: Callable[[int], Awaitable[object]] | None = None,
+        player_name: str = "对方",
     ):
         self.store = store
         self.llm = llm
@@ -48,7 +49,12 @@ class HandoffService:
         self.raw_tail = raw_tail
         self.min_turns = min_turns
         self.before_handoff = before_handoff
-        self._prompt = files("yuwen.prompts").joinpath("handoff.md").read_text(encoding="utf-8")
+        self._prompt = (
+            files("yuwen.prompts")
+            .joinpath("handoff.md")
+            .read_text(encoding="utf-8")
+            .replace("{玩家}", player_name)
+        )
 
     def should_handoff(self, messages: Sequence[dict[str, str]]) -> bool:
         text = "\n".join(message["content"] for message in messages)

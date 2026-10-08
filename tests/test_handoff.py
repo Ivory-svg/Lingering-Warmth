@@ -66,6 +66,7 @@ def test_handoff_closes_old_session_and_continues_with_tail(tmp_path: Path) -> N
         context_limit=1,
         trigger_ratio=1,
         raw_tail=20,
+        player_name="阿栀",
     )
     service = ChatService(store, context, llm, handoff=handoff)
 
@@ -81,6 +82,8 @@ def test_handoff_closes_old_session_and_continues_with_tail(tmp_path: Path) -> N
     handoff_call, chat_call = llm.calls
     assert handoff_call[1:] == (False, True)
     assert "这条消息来自系统" in handoff_call[0][-1]["content"]
+    assert "提到对方时写“阿栀”，提到自己时写“我”" in handoff_call[0][-1]["content"]
+    assert "{玩家}" not in handoff_call[0][-1]["content"]
     assert any(message["content"] == "明天要面试" for message in chat_call[0])
     assert any("刚答应模拟一遍" in message["content"] for message in chat_call[0])
 

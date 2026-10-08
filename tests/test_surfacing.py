@@ -81,7 +81,6 @@ def service(
         decay=DecayConfig(7),
         embedding=EmbeddingConfig(base_url="https://fake.test") if client else EmbeddingConfig(),
         client=client,
-        player_name="小雨",
         clock=lambda: NOW,
     )
 
@@ -100,10 +99,22 @@ def test_semantic_search_orders_matches_and_uses_recent_reply(tmp_path: Path) ->
     assert result is not None
     assert result.index("淋雨后没带伞") < result.index("买了新雨伞")
     assert "完全无关" not in result
-    assert "小雨淋雨后没带伞" in result
+    assert "她淋雨后没带伞" in result
+    assert "小雨淋雨后没带伞" not in result
     assert "10月7日（记不太清）" in result
     assert fake.calls == [["上次下雨你没带伞。\n那次淋雨呢？"]]
     assert store.get_memory(best)["recall_count"] == 1  # type: ignore[index]
+
+
+def test_surfacing_keeps_old_summary_pronouns_verbatim(tmp_path: Path) -> None:
+    store, session_id = setup_store(tmp_path)
+    memory(store, session_id, "她说下雨了，他帮她打伞")
+
+    result = asyncio.run(service(store).recall(session_id, "下雨了打伞"))
+
+    assert result is not None
+    assert "她说下雨了，他帮她打伞" in result
+    assert "小雨" not in result
 
 
 def test_literal_fallback_excludes_sealed_dream_and_visible_sources(tmp_path: Path) -> None:

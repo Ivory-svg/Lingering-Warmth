@@ -27,7 +27,7 @@ class CharacterConfig:
     prompt_file: Path
     worldbook_dir: Path
     name: str = "他"
-    player_name: str = "你"
+    player_name: str = "对方"
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,7 +236,7 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
     base = config_path.parent
     character_data = _section(data, "character")
     name = character_data.get("name", "他")
-    player_name = character_data.get("player_name", "你")
+    player_name = character_data.get("player_name", "对方")
     if not isinstance(name, str) or not name.strip():
         raise ConfigError("[character] name 必须是非空字符串")
     if not isinstance(player_name, str) or not player_name.strip():

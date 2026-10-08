@@ -26,7 +26,7 @@ class InflowService:
         llm: ChatModel,
         *,
         character_name: str = "他",
-        player_name: str = "你",
+        player_name: str = "对方",
         every_n_turns: int = 1,
         embedder: MemoryEmbedder | None = None,
     ):
@@ -49,6 +49,8 @@ class InflowService:
             self._template.replace("{轮数}", str(len(turns)))
             .replace("{对话原文}", dialogue)
             .replace("{这一轮最后一条消息的时间}", str(turns[-1][1]["created_at"]))
+            .replace("{玩家}", self.player_name)
+            .replace("{角色名}", self.character_name)
         )
 
     @staticmethod

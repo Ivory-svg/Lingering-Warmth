@@ -8,7 +8,7 @@ context_limit = 64000
 
 [character]
 name = "他"
-player_name = "你"
+player_name = "对方"
 prompt_file = "worldbook/core.md"
 worldbook_dir = "worldbook"
 

@@ -37,7 +37,7 @@ def test_load_config_applies_defaults_and_resolves_paths(tmp_path: Path) -> None
     assert config.character.prompt_file == tmp_path / "character.md"
     assert config.character.worldbook_dir == tmp_path / "books"
     assert config.character.name == "他"
-    assert config.character.player_name == "你"
+    assert config.character.player_name == "对方"
     assert config.worldbook.scan_depth == 4
     assert config.worldbook.entry_budget == 3000
     assert config.worldbook.corpus_sample == 8

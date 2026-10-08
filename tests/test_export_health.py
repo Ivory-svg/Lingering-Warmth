@@ -108,7 +108,8 @@ def test_markdown_export_uses_names_and_restored_reply_without_embedding(tmp_pat
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/markdown")
     assert "yuwen-export.md" in response.headers["content-disposition"]
-    assert "**小雨**" in response.text
+    assert "**你**" in response.text.split("## 记忆")[0]
+    assert "**小雨**" not in response.text.split("## 记忆")[0]
     assert "**林舟**" in response.text
     assert "我好想你！" in response.text.split("## 记忆")[0]
     assert "## 语感笔记" in response.text

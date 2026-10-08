@@ -50,7 +50,6 @@ class SurfacingService:
         decay: DecayConfig = DecayConfig(),
         embedding: EmbeddingConfig = EmbeddingConfig(),
         client: EmbeddingModel | None = None,
-        player_name: str = "你",
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ):
         self.store = store
@@ -58,7 +57,6 @@ class SurfacingService:
         self.decay = decay
         self.embedding = embedding
         self.client = client
-        self.player_name = player_name
         self.clock = clock
 
     def _visible_messages(self, session_id: int) -> list[dict[str, Any]]:
@@ -128,8 +126,7 @@ class SurfacingService:
             if float(memory["certainty"]) >= self.config.clear_threshold
             else "记不太清"
         )
-        summary = str(memory["summary"]).replace("她", self.player_name)
-        line = f"· {date}（{clarity}）：{summary}。当时的心情：{memory['emotion_text']}。"
+        line = f"· {date}（{clarity}）：{memory['summary']}。当时的心情：{memory['emotion_text']}。"
         if memory["quote"]:
             line += f"原话「{memory['quote']}」"
         return line
