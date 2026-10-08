@@ -63,9 +63,13 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | sealed | INTEGER NOT NULL DEFAULT 0 | 1 = 封存（“这个忘掉吧”），平时不浮现 |
 | weight | REAL NOT NULL DEFAULT 1.0 | 第二档遗忘用，第一档只写不读 |
 | last_recalled_at | TEXT | 第二档用 |
-| embedding | BLOB | 第二档用，float32 数组 |
+| embedding | BLOB | 第二档用，float32 小端数组 |
+| embedding_model | TEXT | 算向量用的模型名；换模型后据此重算（迁移 003 新增） |
+| recall_count | INTEGER NOT NULL DEFAULT 0 | 被浮现过几次，遗忘计算用（迁移 003 新增） |
 
 情绪先文字 + 数值两样都存，数值可空。以后哪一样没用上再删。
+
+`weight` 保留不删，但第二档的遗忘不读它：“还记得多少”在浮现时现算，见 interfaces.md 的 surfacing。
 
 ### memory_history：改写历史
 

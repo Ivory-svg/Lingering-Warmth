@@ -1,6 +1,6 @@
 # 给实作者的说明
 
-M1 已经完成。现在要做的是 [docs/roadmap.md](docs/roadmap.md) 里还没勾的 M1.1、M1.2，按清单顺序做。动手之前按顺序读：
+第一档（M1、M1.1、M1.2）已经完成。现在要做的是 [docs/roadmap.md](docs/roadmap.md) 里的 M2.1，按清单顺序做。动手之前按顺序读：
 
 1. [docs/design.md](docs/design.md)：为什么这样做
 2. [docs/architecture.md](docs/architecture.md)：模块、流程、目录、配置
@@ -48,4 +48,4 @@ M1 已经完成。现在要做的是 [docs/roadmap.md](docs/roadmap.md) 里还�
 
 - 注释和用户可见的文字用简体中文
 - 只有 `store.py` 写 SQL，只有 `llm.py` 发网络请求
-- 依赖越少越好：fastapi、uvicorn、httpx、pytest，第二档再加 numpy
+- 依赖越少越好：fastapi、uvicorn、httpx、pytest；第二档只加 numpy，不引入向量数据库和分词库

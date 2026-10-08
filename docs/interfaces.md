@@ -143,9 +143,11 @@
 |---|---|---|
 | 对话 | messages 列表、是否用小模型、可选 `response_format=json` | 文本 |
 | 估算 token | 文本 | 整数。先用 `字符数 ÷ 1.5` 粗估，中文够用 |
-| embedding（第二档） | 文本 | float 数组 |
+| embedding（第二档） | 一批文本 | 每条一个 float 数组 |
 
 - 失败重试 2 次，指数退避。
+- embedding 用**单独的配置**（`embedding.*`），不和对话模型共用地址和 key。请求格式是 OpenAI 兼容的 `POST {base_url}/embeddings`，body 为 `{"model": ..., "input": [...]}`，取 `data[i].embedding`
+- 没配 `embedding.base_url` 时，embedding 能力视为关闭，不报错
 - 要求 JSON 输出时，解析失败重试一次；还失败就走各模块写的降级路径，不让一轮对话崩掉。
 
 ### worldbook
@@ -268,6 +270,67 @@ priority: 5
 - 只判断像不像他，不判断好不好
 - 重铸层里的变化不算 OOC
 - 拿不准时判 `in_character`
+
+### embedder（第二档）
+
+给记忆算向量，存进 `memories.embedding`（float32 小端字节），同时写 `embedding_model`。
+
+| 时机 | 做什么 |
+|---|---|
+| 写记忆时 | 流入、交接写完记忆后，在同一个后台任务里给它算向量。失败就留空，不影响写记忆 |
+| 启动时 | 后台补算：`embedding` 为空，或 `embedding_model` 和当前配置不同（换了模型）的记忆，按 `embedding.batch_size`（默认 32）一批批补 |
+| 算什么 | `summary`，加上 `quote`（有的话）。不算情绪文字 |
+
+没配 embedding 时，什么都不做。
+
+### surfacing（浮现，第二档）
+
+输入：当前 session、玩家刚发的这句。输出：要递给他的几条记忆（可能为空）。
+
+**1. 查询文本**：玩家刚发的这句 + 他上一条回复，共 `surfacing.query_depth` 条（默认 2）。
+
+**2. 候选**：`memories` 里满足以下全部条件的
+- `sealed = 0`
+- `kind` 不是 `dream`
+- 来源原话（`source_message_ids`）不在当前上下文里：本 session 的原话、交接带进来的原话都算“在眼前”
+- 按意思找时：`embedding` 不为空，且 `embedding_model` 等于当前配置
+
+**3. 相似度**
+- **配了 embedding**：查询文本算一次向量，和候选做余弦相似度（numpy，一次矩阵乘法）
+- **没配 embedding**：退回字面匹配。把查询文本和记忆的 `summary + quote` 都切成相邻两个字的组合（bigram，去掉标点空白），相似度 = 交集大小 / 查询的 bigram 数。不分词，不引入新依赖
+
+**4. 还记得多少（遗忘）**，现算，不存：
+
+```
+天数     = 现在 − max(happened_at, last_recalled_at)，单位天
+稳定度   = decay.base_days × (1 + recall_count) × (1 + arousal)    arousal 为空按 0.3
+保留     = exp(−天数 / 稳定度)
+```
+
+`decay.base_days` 默认 7。被想起一次，稳定度翻倍；情绪越强，忘得越慢。
+
+**5. 排序与取舍**
+- 分数 = 相似度 × (0.6 + 0.4 × 保留)。淡掉的记忆分数最多打六折，不会彻底找不到
+- 相似度低于 `surfacing.min_similarity`（embedding 默认 0.45，字面匹配默认 0.2）的丢掉
+- 取前 `surfacing.top_k` 条（默认 4），总字数不超过 `surfacing.max_chars`（默认 1500）
+
+**6. 被想起**：真正递给他的那几条，`last_recalled_at` 设为现在，`recall_count + 1`。没递出去的不动。
+
+**7. 递给他的格式**：一条 system，插在交接摘要和交接原话之间（见 context 第 8 条）。
+
+```
+这些是你此刻自然想起来的往事。不要复述，不要列出来，用得上就自然带进对话；
+标着“记不太清”的，要说“好像是”“我记得大概是”，不能说得很肯定。
+
+· 10月3日（记得清楚）：她说加班很累，他让她先去吃饭。当时的心情：疲惫，被关心后放松了一点。原话「今天好累」
+· 8月11日（记不太清）：……
+```
+
+- `certainty ≥ surfacing.clear_threshold`（默认 0.7）标“记得清楚”，否则标“记不太清”
+- 日期用 `happened_at`，只写月日；不是今年的写年份
+- 称呼用 `character.player_name` 时，把“她/他”换成称呼；示例里的“她”只是示意
+
+**降级**：embedding 请求失败、numpy 出错，就退回字面匹配；字面匹配也出错，这一轮不浮现。浮现坏了不能让他说不出话。
 
 ### export
 
