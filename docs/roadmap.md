@@ -63,11 +63,25 @@
 - [x] 配置：`embedding.*`、`surfacing.*`、`decay.*`；依赖加 numpy
 - [x] llm：OpenAI 兼容的 embedding 请求；没配时视为关闭
 - [x] embedder：写记忆后算向量；启动时补算缺失的和换了模型的
-- [x] surfacing：候选过滤、余弦相似度、字面匹配退路、遗忘现算、排序取舍、更新 `last_recalled_at` 和 `recall_count`
+- [x] surfacing：候选过滤、余弦相似度、字面匹配退路、遗忘现算、排序取舍、更新 `last_recalled_at` 和 `recall_count`（M2.1.1 改成用上了才更新）
 - [x] context：浮现的记忆插在交接摘要和交接原话之间
 - [x] Markdown 导出里的记忆显示被想起几次
 - [x] README：embedding 二选一（在线平台 / 不配），本地 Ollama 只在进阶里提一句，不写步骤
 - [x] 测试覆盖：用假的 embedding（例如按关键词生成固定向量）测相似排序；字面匹配退路；封存的和眼前的不浮现；遗忘让旧记忆排后但不消失；被想起后 recall_count 增加、下次排名上升；embedding 失败时退回字面匹配；换模型后补算
+
+#### M2.1.1 · 用上了才算想起（接着做）
+
+见 [design.md](design.md)「浮现怎么找」，接口见 [interfaces.md](interfaces.md) 的 surfacing 第 6 步和 inflow，prompt 见 [prompts/inflow.md](prompts/inflow.md)。
+
+现在只要递进去就算想起一次，不相关的记忆会越递越牢。改成他真的用上了才算。
+
+- [ ] chat：不再当场 `mark_recalled`；把这一轮最终递进上下文的记忆 id 写进回复的 `meta.surfaced_memory_ids`。发生交接的那一轮，只写交接后那一批
+- [ ] inflow：这批轮次里递过记忆时，prompt 加「递给他的往事」一段，解析 `used_memory_ids`；没递过就不加
+- [ ] inflow：只认这批里递过的 id；用上的 `recall_count + 1`，`last_recalled_at` 用递给它的那条回复的时间；同一批里同一条只加一次
+- [ ] 降级：字段缺失、格式不对、整个解析失败、走原话降级路径，都当没用上
+- [ ] `src/yuwen/prompts/inflow.md` 和文档里的 prompt 同步
+- [ ] 旧数据：没有 `surfaced_memory_ids` 的回复照常流入，不报错
+- [ ] 测试覆盖：递了没用不加次数；用了加次数且时间是那条回复的；交接那轮只记交接后那批；小模型返回没递过的 id 被忽略；`every_n_turns=3` 时三轮一起判断、同一条只加一次；解析失败不加次数；没递过记忆时 prompt 里没有那一段
 
 #### M2.2 · 之后
 

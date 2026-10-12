@@ -38,7 +38,7 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | role | TEXT NOT NULL | `user` / `assistant` / `event` |
 | content | TEXT NOT NULL | 原文。被守门人改写时，这里存实际发出的版本 |
 | created_at | TEXT NOT NULL | |
-| meta | TEXT | JSON，可选。如 `{"ooc_rewritten": true, "voice_note_id": 3}` |
+| meta | TEXT | JSON，可选。如 `{"ooc_rewritten": true, "voice_note_id": 3}`；第二档起，回复上还有 `surfaced_memory_ids`：这一轮递给他的记忆 id |
 
 `event` 留给第二档以后的感应事件（戳一下、摸头），第一档不用。
 

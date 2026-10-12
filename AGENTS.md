@@ -1,6 +1,6 @@
 # 给实作者的说明
 
-第一档（M1、M1.1、M1.2）已经完成。现在要做的是 [docs/roadmap.md](docs/roadmap.md) 里的 M2.1，按清单顺序做。动手之前按顺序读：
+第一档（M1、M1.1、M1.2）和 M2.1 已经完成。现在要做的是 [docs/roadmap.md](docs/roadmap.md) 里的 M2.1.1，按清单顺序做。动手之前按顺序读：
 
 1. [docs/design.md](docs/design.md)：为什么这样做
 2. [docs/architecture.md](docs/architecture.md)：模块、流程、目录、配置
