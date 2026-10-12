@@ -40,7 +40,7 @@
 </head>
 <body>
   <main>
-    <header><h1>余温</h1><nav class="export-links" aria-label="导出全部记忆"><a href="/export?format=markdown">给人看的 Markdown</a><a href="/export?format=json">给程序搬家的 JSON</a></nav></header>
+    <header><h1>余温</h1><nav class="export-links" aria-label="导出全书"><a href="/export?format=markdown">导出全书（Markdown）</a><a href="/export?format=json">备份全书（JSON）</a></nav></header>
     <section id="messages" aria-live="polite"><p class="empty">人走了，温度还在。</p></section>
     <div id="message-menu" class="message-menu" role="menu" hidden><button id="flag-ooc" type="button" role="menuitem">他不会这么说</button></div>
     <div><div id="error" role="alert"></div><form id="chat-form"><textarea id="content" rows="1" placeholder="说点什么……" required></textarea><button id="send" type="submit">发送</button></form></div>
@@ -81,7 +81,7 @@
         mark = document.createElement('button');
         mark.type = 'button';
         mark.className = 'ooc-mark';
-        mark.setAttribute('aria-label', '查看语感笔记');
+        mark.setAttribute('aria-label', '查看勘误');
         mark.setAttribute('aria-expanded', 'false');
         details = document.createElement('div');
         details.className = 'ooc-details';
@@ -93,14 +93,14 @@
         });
         item.append(mark, details);
       }
-      details.textContent = `原本想说：${ooc.original}\n因为：${ooc.reason}`;
+      details.textContent = `勘误\n原本想说：${ooc.original}\n因为：${ooc.reason}`;
       if (ooc.source === 'player' && ooc.rewritten) {
         details.textContent += `\n建议改成：${ooc.rewritten}`;
       }
       const noteInput = document.createElement('input');
       noteInput.type = 'text';
-      noteInput.placeholder = '补充说明（可不填）';
-      noteInput.setAttribute('aria-label', '推翻理由');
+      noteInput.placeholder = '为什么这条勘误不对（可不填）';
+      noteInput.setAttribute('aria-label', '推翻勘误的理由');
       const overturn = document.createElement('button');
       overturn.type = 'button';
       overturn.textContent = '其实他会这么说';
@@ -112,7 +112,7 @@
             body: JSON.stringify({note: noteInput.value.trim() || null})
           });
           const data = await response.json();
-          if (!response.ok) throw new Error(data.detail || '推翻失败');
+          if (!response.ok) throw new Error(data.detail || '推翻勘误失败');
           item.querySelector('.message-text').textContent = data.content;
           mark.remove();
           details.remove();
@@ -162,7 +162,7 @@
     function addDivider() {
       const line = document.createElement('div');
       line.className = 'handoff';
-      line.textContent = '接续上一段对话';
+      line.textContent = '续写 · 新的一卷';
       messages.append(line);
     }
     function addMessage(role, text, messageId = null, ooc = null) {

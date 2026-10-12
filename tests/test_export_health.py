@@ -65,11 +65,13 @@ def test_export_and_health_endpoints(tmp_path: Path) -> None:
     with TestClient(app) as client:
         health = client.get("/health")
         exported = client.get("/export")
+        markdown = client.get("/export?format=markdown")
 
     assert health.json() == {"ok": True, "schema_version": "3"}
     assert exported.status_code == 200
     assert "attachment" in exported.headers["content-disposition"]
     assert set(exported.json()["tables"]) == set(TABLES)
+    assert "—— 续写 · 新的一卷 ——" in markdown.text
 
 
 def test_markdown_export_uses_names_and_restored_reply_without_embedding(tmp_path: Path) -> None:
@@ -108,11 +110,15 @@ def test_markdown_export_uses_names_and_restored_reply_without_embedding(tmp_pat
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/markdown")
     assert "yuwen-export.md" in response.headers["content-disposition"]
-    assert "**你**" in response.text.split("## 记忆")[0]
-    assert "**小雨**" not in response.text.split("## 记忆")[0]
+    assert "**你**" in response.text.split("## 随笔")[0]
+    assert "**小雨**" not in response.text.split("## 随笔")[0]
     assert "**林舟**" in response.text
-    assert "我好想你！" in response.text.split("## 记忆")[0]
-    assert "## 语感笔记" in response.text
+    assert "我好想你！" in response.text.split("## 随笔")[0]
+    assert "# 余温 · 全书导出" in response.text
+    assert "### 第 1 卷" in response.text
+    assert "## 随笔" in response.text
+    assert "## 续写" in response.text
+    assert "## 勘误" in response.text
     assert "被想起 1 次" in response.text
     assert "secret-embedding" not in response.text
     assert invalid.status_code == 422

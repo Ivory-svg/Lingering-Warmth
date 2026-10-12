@@ -101,6 +101,22 @@ def test_post_chat_rejects_blank_message(tmp_path: Path) -> None:
     assert response.json()["detail"] == "消息内容不能为空"
 
 
+def test_web_ui_uses_book_names_for_visible_controls(tmp_path: Path) -> None:
+    config, store, books = make_parts(tmp_path)
+    app = create_app(config, store=store, llm=FakeLLM(), worldbook=books)
+
+    with TestClient(app) as client:
+        html = client.get("/").text
+
+    assert "导出全书（Markdown）" in html
+    assert "备份全书（JSON）" in html
+    assert "查看勘误" in html
+    assert "为什么这条勘误不对（可不填）" in html
+    assert "续写 · 新的一卷" in html
+    assert "他不会这么说" in html
+    assert "其实他会这么说" in html
+
+
 def test_get_messages_restores_current_session_with_latest_voice_note(tmp_path: Path) -> None:
     config, store, books = make_parts(tmp_path)
     old_session_id = store.create_session()

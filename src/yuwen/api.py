@@ -266,14 +266,14 @@ def create_app(
     @app.patch("/voice-notes/{note_id}")
     async def patch_voice_note(note_id: int, request: VoiceNotePatch) -> dict[str, object]:
         if not database.update_voice_note_active(note_id, request.active):
-            raise HTTPException(status_code=404, detail="找不到这条语感笔记")
+            raise HTTPException(status_code=404, detail="找不到这条勘误")
         return {"id": note_id, "active": request.active}
 
     @app.post("/voice-notes/{note_id}/overturn", response_model=OverturnResponse)
     async def overturn_voice_note(note_id: int, request: OverturnRequest) -> dict[str, object]:
         result = database.overturn_voice_note(note_id, request.note)
         if result is None:
-            raise HTTPException(status_code=404, detail="找不到这条语感笔记")
+            raise HTTPException(status_code=404, detail="找不到这条勘误")
         return result
 
     @app.get("/export")

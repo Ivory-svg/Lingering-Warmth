@@ -33,9 +33,9 @@
 }
 ```
 
-- `ooc_rewritten`：发出前被守门人改写过
+- `ooc_rewritten`：发出前被校对改写过
 - `ooc`：只在 `ooc_rewritten` 为 true 时出现，否则为 null。前端点开小标记时显示这里的内容，不用再发请求
-- `handoff_happened`：这一轮之前刚做过一次交接（前端可以显示一条细细的分隔线）
+- `handoff_happened`：这一轮之前刚续写到新的一卷（前端可以显示一条细细的分隔线）
 
 ### `GET /messages`
 
@@ -53,9 +53,9 @@
 ]
 ```
 
-- `ooc`：这条回复有过语感笔记（守门人改写或玩家标记）时才有，取最新一条；否则为 null
+- `ooc`：这条回复有过勘误（校对改写或玩家标记）时才有，取最新一条；否则为 null
 - `role = event` 的消息不返回
-- 交接分隔线暂不需要在刷新后还原
+- 续写分隔线暂不需要在刷新后还原
 
 ### `POST /ooc/flag`
 
@@ -67,8 +67,8 @@
 { "message_id": 128, "player_rewrite": null }
 ```
 
-- `player_rewrite` 为空：守门人分析并给出改写
-- `player_rewrite` 有值：直接用玩家改的版本，守门人只补写原因
+- `player_rewrite` 为空：校对分析并给出改写
+- `player_rewrite` 有值：直接用玩家改的版本，校对只补写原因
 
 响应：
 
@@ -81,15 +81,15 @@
 }
 ```
 
-`verdict` 为 `in_character` 时 `rewritten` 和 `voice_note_id` 为空，并告诉玩家守门人觉得这句没问题；玩家仍可传 `player_rewrite` 强制存一条。
+`verdict` 为 `in_character` 时 `rewritten` 和 `voice_note_id` 为空，并告诉玩家校对觉得这句没问题；玩家仍可传 `player_rewrite` 强制存一条。
 
 ### `GET /voice-notes` / `PATCH /voice-notes/{id}`
 
-列出语感笔记；`PATCH` 只允许改 `active`。
+列出勘误；`PATCH` 只允许改 `active`。
 
 ### `POST /voice-notes/{id}/overturn`
 
-玩家点开小标记，觉得守门人看走眼了：“其实他会这么说”。
+玩家点开勘误的小标记，觉得校对看走眼了：“其实他会这么说”。
 
 请求：
 
@@ -101,8 +101,8 @@
 
 做三件事：
 
-1. 这条语感笔记设 `active = 0`，并写上 `overturned_at`、`overturn_note`
-2. 如果是守门人改写的（`source = gatekeeper`），这条回复恢复成原句：在消息 `meta` 里记 `restored`，见 [schema.md](schema.md)
+1. 这条勘误设 `active = 0`，并写上 `overturned_at`、`overturn_note`
+2. 如果是校对改写的（`source = gatekeeper`），这条回复恢复成原句：在消息 `meta` 里记 `restored`，见 [schema.md](schema.md)
 3. 返回恢复后要显示的内容
 
 响应：
@@ -111,13 +111,13 @@
 { "message_id": 128, "content": "我好想你！", "restored": true }
 ```
 
-- 玩家标记产生的笔记（`source = player`）被推翻时，只停用笔记，回复本来就没改过，`restored` 为 false
+- 玩家标记产生的勘误（`source = player`）被推翻时，只停用勘误，回复本来就没改过，`restored` 为 false
 - 已经推翻过的再推翻，直接返回当前状态，不报错
 - 推翻后小标记消失，这条回复看起来和普通回复一样
 
 ### `GET /export`
 
-完整导出：所有表的所有行，一个 JSON 文件。世界书文件不在数据库里，不导出。
+完整导出：所有表的所有行，一个 JSON 文件。扉页文件不在数据库里，不导出。
 
 ```json
 {
@@ -154,7 +154,7 @@
 
 ### worldbook
 
-世界书目录结构（见 design.md「扉页拆成三份，按需带」）：
+扉页目录结构（见 design.md「扉页拆成三份，按需带」）：
 
 ```
 worldbook/
@@ -191,20 +191,20 @@ priority: 5
 
 没有写入能力。
 
-**旧格式兼容**：如果 `worldbook/` 下没有 `core.md`，但有 `character.prompt_file` 指向的文件（例如旧的 `character.md`），就把它当核心；`worldbook/` 根目录下其他没有 front matter 的 `.md` 每轮都带，并在启动日志里建议拆成词条。
+**旧格式兼容**：如果 `worldbook/` 下没有 `core.md`，但有 `character.prompt_file` 指向的文件（例如旧的 `character.md`），就把它当扉页核心；`worldbook/` 根目录下其他没有 front matter 的 `.md` 每轮都带，并在启动日志里建议拆成词条。
 
 ### context
 
 输入：当前 session。输出：发给模型的 messages 列表。拼接顺序：
 
-1. system：世界书核心
+1. system：扉页核心
 2. system：命中的词条（没有就跳过），每条前面标上词条名
 3. system：抽到的语料，前面写一句“参考这些句子的感觉，用他的方式说新的话，不要原句复述”（没有语料就跳过）
-4. system：语感笔记（最近 K 条 active 的），格式“原来想说：…… / 他会说：…… / 因为：……”
-5. system：交接摘要（如果本 session 接续了交接）
-6. 上一窗最后 N 条原话（如果有交接）
+4. system：勘误（最近 K 条 active 的），格式“原来想说：…… / 他会说：…… / 因为：……”
+5. system：续写摘要（如果本 session 接续了上一卷）
+6. 上一卷最后 N 条原话（如果发生过续写）
 7. 本 session 的所有原话
-8. 第二档起：浮现的记忆插在 5 和 6 之间
+8. 第二档起：翻阅的记忆插在 5 和 6 之间
 
 匹配词条用的“最近几句”，包含玩家刚发的这一句。
 
@@ -215,7 +215,7 @@ priority: 5
 | 做什么 | 用 [prompts/inflow.md](prompts/inflow.md) 调小模型，得到 JSON，写一条 `kind=turn` 的记忆 |
 | 降级 | JSON 解析失败时：summary 存原话前 100 字，emotion_text 存“未标注”，certainty 0.5 |
 | 时机 | 回复发出后在后台跑，不阻塞玩家 |
-| 攒几轮 | `inflow.every_n_turns`（默认 1）。设成 N 时，每攒满 N 轮才调一次小模型，把这 N 轮总结成一条记忆，`source_message_ids` 包含这 N 轮的所有原话。交接前没攒满的也要先总结掉，不能丢 |
+| 攒几轮 | `inflow.every_n_turns`（默认 1）。设成 N 时，每攒满 N 轮才调一次小模型，把这 N 轮记成一条随笔，`source_message_ids` 包含这 N 轮的所有原话。续写前没攒满的也要先总结掉，不能丢 |
 | 用上了哪些（第二档） | 这批轮次的回复里，`meta.surfaced_memory_ids` 有东西的，把这些记忆一起列给小模型，让它在 `used_memory_ids` 里返回回复真的用上的。见下 |
 
 小模型返回格式：
@@ -235,7 +235,7 @@ priority: 5
 **`used_memory_ids` 怎么用**
 
 - 只认这批轮次里真的递过的 id，小模型返回别的数字一律忽略
-- 用上的那条：`recall_count + 1`，`last_recalled_at` 设为递给它的那条回复的时间（不是流入跑的时间）。同一批里递过好几次的，只加一次，时间取最后那条回复
+- 用上的那条：`recall_count + 1`，`last_recalled_at` 设为递给它的那条回复的时间（不是随笔处理的时间）。同一批里递过好几次的，只加一次，时间取最后那条回复
 - 这批里没递过任何记忆时，prompt 里不加那一段，也不读这个字段
 
 **降级**：字段缺失、不是数组、JSON 整个解析失败、走了“原话前 100 字”的降级路径，都当作一条也没用上，不加次数。宁可少记一次，不让错的越记越牢。
@@ -244,12 +244,12 @@ priority: 5
 
 | 能力 | 说明 |
 |---|---|
-| 是否需要交接 | 拼好的上下文 token 估算 ≥ `context_limit × trigger_ratio`，**并且**本 session 里玩家已经发了至少 `handoff.min_turns`（默认 20）句。第一个窗口不受这个限制 |
-| 写交接 | 用 [prompts/handoff.md](prompts/handoff.md) 让**对话模型本身**（不是小模型）写，因为语气要是他的 |
+| 是否需要续写 | 拼好的上下文 token 估算 ≥ `context_limit × trigger_ratio`，**并且**本 session 里玩家已经发了至少 `handoff.min_turns`（默认 20）句。第一卷不受这个限制 |
+| 写续写摘要 | 用 [prompts/handoff.md](prompts/handoff.md) 让**对话模型本身**（不是小模型）写，因为语气要是他的 |
 | 落库 | 存 handoffs；写一条 `kind=handoff` 的记忆；关闭旧 session；开新 session |
 | 带入 | 由 context 负责，见上 |
 
-交接模型返回格式：
+续写模型返回格式：
 
 ```json
 {
@@ -261,11 +261,11 @@ priority: 5
 
 ### gatekeeper（校对，原名 OOC 守门人）
 
-| 输入 | 一句回复 + 世界书核心和本轮命中的词条（不带语料）+ 重铸层变化（第一档为空）+ 最近几句上下文 |
+| 输入 | 一句回复 + 扉页核心和本轮命中的词条（不带语料）+ 修订中的变化（第一档为空）+ 最近几句上下文 |
 |---|---|
 | 输出 | verdict、reason、rewritten |
 | 用小模型 | 是 |
-| 降级 | 解析失败或超时，视为 `in_character`，原样发出。守门人坏了不能让他说不出话 |
+| 降级 | 解析失败或超时，视为 `in_character`，原样发出。校对坏了不能让他说不出话 |
 
 返回格式：
 
@@ -280,7 +280,7 @@ priority: 5
 规则（写在 [prompts/ooc-gatekeeper.md](prompts/ooc-gatekeeper.md) 里）：
 
 - 只判断像不像他，不判断好不好
-- 重铸层里的变化不算 OOC
+- 修订中的变化不算 OOC
 - 拿不准时判 `in_character`
 
 ### embedder（第二档）
@@ -289,7 +289,7 @@ priority: 5
 
 | 时机 | 做什么 |
 |---|---|
-| 写记忆时 | 流入、交接写完记忆后，在同一个后台任务里给它算向量。失败就留空，不影响写记忆 |
+| 写记忆时 | 随笔、续写写完记忆后，在同一个后台任务里给它算向量。失败就留空，不影响写记忆 |
 | 启动时 | 后台补算：`embedding` 为空，或 `embedding_model` 和当前配置不同（换了模型）的记忆，按 `embedding.batch_size`（默认 32）一批批补 |
 | 算什么 | `summary`，加上 `quote`（有的话）。不算情绪文字 |
 
@@ -304,14 +304,14 @@ priority: 5
 **2. 候选**：`memories` 里满足以下全部条件的
 - `sealed = 0`
 - `kind` 不是 `dream`
-- 来源原话（`source_message_ids`）不在当前上下文里：本 session 的原话、交接带进来的原话都算“在眼前”
+- 来源原话（`source_message_ids`）不在当前上下文里：本 session 的原话、续写带进来的原话都算“在眼前”
 - 按意思找时：`embedding` 不为空，且 `embedding_model` 等于当前配置
 
 **3. 相似度**
 - **配了 embedding**：查询文本算一次向量，和候选做余弦相似度（numpy，一次矩阵乘法）
 - **没配 embedding**：退回字面匹配。把查询文本和记忆的 `summary + quote` 都切成相邻两个字的组合（bigram，去掉标点空白），相似度 = 交集大小 / 查询的 bigram 数。不分词，不引入新依赖
 
-**4. 还记得多少（遗忘）**，现算，不存：
+**4. 还记得多少（褪墨）**，现算，不存：
 
 ```
 天数     = 现在 − max(happened_at, last_recalled_at)，单位天
@@ -328,11 +328,11 @@ priority: 5
 
 **6. 被想起**：递给他不等于想起，用上了才算。
 
-- 浮现时不动 `recall_count` 和 `last_recalled_at`
-- 这一轮真正递进上下文的那几条，id 记在这条回复的 `messages.meta.surfaced_memory_ids` 里。发生交接的那一轮，只记交接后重新找的那一批：交接前那批没有递出去
-- 流入总结到这一轮时，由小模型判断回复里用上了哪几条，只给用上的加次数，见 inflow
+- 翻阅时不动 `recall_count` 和 `last_recalled_at`
+- 这一轮真正递进上下文的那几条，id 记在这条回复的 `messages.meta.surfaced_memory_ids` 里。发生续写的那一轮，只记续写后重新找的那一批：续写前那批没有递出去
+- 随笔记到这一轮时，由小模型判断回复里用上了哪几条，只给用上的加次数，见 inflow
 
-**7. 递给他的格式**：一条 system，插在交接摘要和交接原话之间（见 context 第 8 条）。
+**7. 递给他的格式**：一条 system，插在续写摘要和上一卷原话之间（见 context 第 8 条）。
 
 ```
 这些是你此刻自然想起来的往事。不要复述，不要列出来，用得上就自然带进对话；
@@ -344,43 +344,43 @@ priority: 5
 
 - `certainty ≥ surfacing.clear_threshold`（默认 0.7）标“记得清楚”，否则标“记不太清”
 - 日期用 `happened_at`，只写月日；不是今年的写年份
-- 摘要原样放，不做任何替换。流入写摘要时就已经用名字称呼两个人（见 prompts/inflow.md），不会出现指代不清的“他”“她”
+- 摘要原样放，不做任何替换。写随笔摘要时就已经用名字称呼两个人（见 prompts/inflow.md），不会出现指代不清的“他”“她”
 - 旧记忆如果还有“他”“她”，也原样放，不要猜着替换：替错了比不替更糟
 
-**降级**：embedding 请求失败、numpy 出错，就退回字面匹配；字面匹配也出错，这一轮不浮现。浮现坏了不能让他说不出话。
+**降级**：embedding 请求失败、numpy 出错，就退回字面匹配；字面匹配也出错，这一轮不翻阅。翻阅坏了不能让他说不出话。
 
 ### export
 
-读所有表，按上面格式输出。不做任何过滤，封存的也导出（那是玩家自己的东西）。
+读所有表，按上面格式输出。不做任何过滤，封页的也导出（那是玩家自己的东西）。
 
 **Markdown 导出**（`GET /export?format=markdown`）：给人读的版本，一个 `.md` 文件。
 
 ```markdown
-# 余温导出 · 2026-10-07
+# 余温 · 全书导出 · 2026-10-07
 
 ## 对话
 
-### 窗口 7 · 2026-10-07 20:15 起
+### 第 7 卷 · 2026-10-07 20:15 起
 **你** 20:15
 今天好累
 
 **他** 20:15
 ……吃饭了没。
 
-—— 接续上一段对话 ——
+—— 续写 · 新的一卷 ——
 
-## 记忆
+## 随笔
 - 2026-10-07 20:15 · 疲惫，被关心后放松了一点 · 阿栀说今天加班很累，沈砚让阿栀先去吃饭（确定度 0.9，被想起 2 次）
 
-## 交接
-## 语感笔记
+## 续写
+## 勘误
 ```
 
 - 对话里的说话人：玩家一律写“你”，角色写 `character.name`。这是给人读的，所以玩家就是“你”
-- 记忆、交接里的摘要原样放（里面用的是 `character.player_name`）
+- 随笔、续写里的摘要原样放（里面用的是 `character.player_name`）
 - 被推翻（`restored`）的回复显示原句
 - 不导出 embedding
-- 网页的“导出全部记忆”给两个选项：给人看的（Markdown）、给程序搬家的（JSON）
+- 网页的“导出全书”给两个选项：给人看的（Markdown）、给程序搬家的（JSON）
 
 ---
 
@@ -389,7 +389,7 @@ priority: 5
 | 接口 | 用途 | 档 |
 |---|---|---|
 | `POST /events` | 感应事件（戳一下、摸头），写成 `role=event` 的消息 | 二 |
-| `GET /diary?month=2026-10` / `POST /diary/{id}/reply` | 日记日历与回复 | 二 |
+| `GET /diary?month=2026-10` / `POST /diary/{id}/reply` | 折角日历与回复 | 二 |
 | `POST /memories/{id}/seal` | “这个忘掉吧” | 二 |
-| `GET /wake/pending` | 前端轮询唤醒消息（或改成 WebSocket 推送） | 三 |
-| 唤醒事件对外通知 | 他主动说了一句话时，把内容、原因和“日常”里此刻在做什么推给外部程序（webhook），给声音、形象、报备那个项目用 | 三 |
+| `GET /wake/pending` | 前端轮询来信消息（或改成 WebSocket 推送） | 三 |
+| 来信事件对外通知 | 他主动说了一句话时，把内容、原因和“日常”里此刻在做什么推给外部程序（webhook），给声音、形象、报备那个项目用 | 三 |

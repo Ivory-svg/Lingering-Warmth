@@ -309,7 +309,7 @@ class Store:
     def list_pending_inflow_turns(
         self, session_id: int
     ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
-        """按回复所在窗口找出尚未被流入记忆覆盖的完整轮次。"""
+        """按回复所在窗口找出尚未被随笔记忆覆盖的完整轮次。"""
 
         with self._connect() as connection:
             assistants = connection.execute(
@@ -441,7 +441,7 @@ class Store:
         return dict(row) if row else None
 
     def restored_voice_note(self, message: dict[str, Any]) -> dict[str, Any] | None:
-        """找到消息 meta 指向的、已恢复原句的语感笔记。"""
+        """找到消息 meta 指向的、已恢复原句的勘误。"""
 
         try:
             meta = json.loads(message["meta"]) if message["meta"] else {}
@@ -462,7 +462,7 @@ class Store:
         return str(restored["original"] if restored else message["content"])
 
     def overturn_voice_note(self, note_id: int, note_text: str | None) -> dict[str, Any] | None:
-        """停用语感笔记；守门人改写过的回复用 meta 标记恢复。"""
+        """停用勘误；校对改写过的回复用 meta 标记恢复。"""
 
         with self._connect() as connection:
             note = connection.execute(

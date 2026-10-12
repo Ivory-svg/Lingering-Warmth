@@ -1,4 +1,4 @@
-"""按相关性和遗忘程度，把少量旧记忆递进当前对话。"""
+"""按相关性和褪墨程度，把少量旧记忆翻进当前对话。"""
 
 from __future__ import annotations
 
@@ -132,7 +132,7 @@ class SurfacingService:
         return line
 
     async def find(self, session_id: int, player_text: str) -> SurfacedResult | None:
-        """挑选记忆但不计次，供交接前后决定最终带入内容。"""
+        """挑选记忆但不计次，供续写前后决定最终带入内容。"""
 
         if not self.config.enabled or self.config.max_chars <= len(_INTRO) + 1:
             return None
@@ -161,7 +161,7 @@ class SurfacingService:
                     scored = await self._semantic_similarities(query, candidates) if candidates else []
                     threshold = self.config.min_similarity
                 except Exception as exc:
-                    logger.warning("向量浮现失败，改用字面匹配：%s", exc)
+                    logger.warning("向量翻阅失败，改用字面匹配：%s", exc)
                     use_embedding = False
             if not use_embedding:
                 candidates = eligible(self.store.list_recall_candidates())
@@ -193,11 +193,11 @@ class SurfacingService:
                 return None
             return SurfacedResult(_INTRO + "\n" + "\n".join(lines), tuple(selected_ids))
         except Exception as exc:
-            logger.warning("字面浮现失败，本轮跳过：%s", exc)
+            logger.warning("字面翻阅失败，本轮跳过：%s", exc)
             return None
 
     async def recall(self, session_id: int, player_text: str) -> str | None:
-        """直接浮现一轮；失败时不打断对话，也不在这里计次。"""
+        """直接翻阅一轮；失败时不打断对话，也不在这里计次。"""
 
         result = await self.find(session_id, player_text)
         return result.text if result else None
