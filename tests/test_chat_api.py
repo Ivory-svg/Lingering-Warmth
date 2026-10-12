@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -67,6 +68,7 @@ def test_chat_service_runs_one_basic_turn(tmp_path: Path) -> None:
         ("user", "今天好累"),
         ("assistant", "先去吃点东西。"),
     ]
+    assert json.loads(rows[1]["meta"])["surfaced_memory_ids"] == []
     assert llm.calls[0][-1] == {"role": "user", "content": "今天好累"}
 
 

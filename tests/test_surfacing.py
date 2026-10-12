@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 
 from dataclasses import replace
@@ -8,11 +9,13 @@ import numpy as np
 
 from test_chat_api import FakeLLM, make_parts
 from test_handoff import SequenceLLM
+from test_inflow import ReplyLLM
 from yuwen.api import create_app
 from yuwen.chat import ChatService
 from yuwen.config import DecayConfig, EmbeddingConfig, SurfacingConfig
 from yuwen.context import ContextBuilder
 from yuwen.handoff import HandoffService
+from yuwen.inflow import InflowService
 from yuwen.llm import estimate_tokens
 from yuwen.store import Store
 from yuwen.surfacing import SurfacingService
@@ -103,7 +106,7 @@ def test_semantic_search_orders_matches_and_uses_recent_reply(tmp_path: Path) ->
     assert "小雨淋雨后没带伞" not in result
     assert "10月7日（记不太清）" in result
     assert fake.calls == [["上次下雨你没带伞。\n那次淋雨呢？"]]
-    assert store.get_memory(best)["recall_count"] == 1  # type: ignore[index]
+    assert store.get_memory(best)["recall_count"] == 0  # type: ignore[index]
 
 
 def test_surfacing_keeps_old_summary_pronouns_verbatim(tmp_path: Path) -> None:
@@ -130,7 +133,7 @@ def test_literal_fallback_excludes_sealed_dream_and_visible_sources(tmp_path: Pa
     result = asyncio.run(service(store).recall(session_id, "下雨没带伞"))
 
     assert result is not None and "下雨没带伞" in result
-    assert store.get_memory(kept)["recall_count"] == 1  # type: ignore[index]
+    assert store.get_memory(kept)["recall_count"] == 0  # type: ignore[index]
     assert all(store.get_memory(item)["recall_count"] == 0 for item in (sealed, dream, visible))  # type: ignore[index]
 
 
@@ -161,14 +164,15 @@ def test_decay_moves_old_memory_back_without_removing_it_and_recall_reorders(tmp
     finder = service(store, client=FakeEmbedding())
 
     first = asyncio.run(finder.recall(session_id, "雨伞"))
+    store.mark_memories_recalled([old], recalled_at=NOW.isoformat())
     second = asyncio.run(finder.recall(session_id, "雨伞"))
 
     assert first is not None and second is not None
     assert first.index("昨天的雨伞") < first.index("很久以前的雨伞")
     assert second.index("很久以前的雨伞") < second.index("昨天的雨伞")
     assert "2025年10月7日" in first
-    assert store.get_memory(old)["recall_count"] == 2  # type: ignore[index]
-    assert store.get_memory(recent)["recall_count"] == 2  # type: ignore[index]
+    assert store.get_memory(old)["recall_count"] == 1  # type: ignore[index]
+    assert store.get_memory(recent)["recall_count"] == 0  # type: ignore[index]
     assert store.get_memory(old)["last_recalled_at"] == NOW.isoformat()  # type: ignore[index]
 
 
@@ -181,7 +185,7 @@ def test_embedding_failure_uses_literal_matching(tmp_path: Path) -> None:
 
     assert result is not None and "下雨没带伞" in result
     assert fake.calls == [["下雨没带伞"]]
-    assert store.get_memory(matched)["recall_count"] == 1  # type: ignore[index]
+    assert store.get_memory(matched)["recall_count"] == 0  # type: ignore[index]
 
 
 def test_invalid_stored_vector_uses_literal_matching(tmp_path: Path) -> None:
@@ -194,7 +198,7 @@ def test_invalid_stored_vector_uses_literal_matching(tmp_path: Path) -> None:
     )
 
     assert result is not None and "下雨没带伞" in result
-    assert store.get_memory(matched)["recall_count"] == 1  # type: ignore[index]
+    assert store.get_memory(matched)["recall_count"] == 0  # type: ignore[index]
 
 
 def test_surfacing_respects_count_budget_and_disabled_flag(tmp_path: Path) -> None:
@@ -207,7 +211,7 @@ def test_surfacing_respects_count_budget_and_disabled_flag(tmp_path: Path) -> No
     result = asyncio.run(limited.recall(session_id, "下雨没带伞"))
 
     assert result is not None
-    assert sum(store.get_memory(item)["recall_count"] for item in (first, second)) == 1  # type: ignore[index]
+    assert sum(store.get_memory(item)["recall_count"] for item in (first, second)) == 0  # type: ignore[index]
     disabled = service(store, client=fake, config=SurfacingConfig(enabled=False))
     assert asyncio.run(disabled.recall(session_id, "下雨没带伞")) is None
     assert len(fake.calls) == 1
@@ -222,7 +226,7 @@ def test_surfacing_skips_memory_that_exceeds_character_budget(tmp_path: Path) ->
     result = asyncio.run(finder.recall(session_id, "雨伞"))
 
     assert result is not None and len(result) <= 180
-    assert store.get_memory(short)["recall_count"] == 1  # type: ignore[index]
+    assert store.get_memory(short)["recall_count"] == 0  # type: ignore[index]
     assert store.get_memory(long)["recall_count"] == 0  # type: ignore[index]
 
 
@@ -241,7 +245,9 @@ def test_chat_context_includes_recalled_memory(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert any("下雨没带伞" in item["content"] and "往事" in item["content"]
                for item in llm.calls[0])
-    assert store.get_memory(old_memory)["recall_count"] == 1  # type: ignore[index]
+    assistant = store.get_message(response.json()["message_id"])
+    assert json.loads(assistant["meta"])["surfaced_memory_ids"] == [old_memory]  # type: ignore[index]
+    assert store.get_memory(old_memory)["recall_count"] == 0  # type: ignore[index]
 
 
 def test_handoff_threshold_includes_recall_and_counts_it_once(tmp_path: Path) -> None:
@@ -266,4 +272,49 @@ def test_handoff_threshold_includes_recall_and_counts_it_once(tmp_path: Path) ->
     assert result.handoff_happened
     assert "自然想起来的往事" in str(llm.calls[0][0])
     assert "自然想起来的往事" in str(llm.calls[1][0])
-    assert store.get_memory(old_memory)["recall_count"] == 1  # type: ignore[index]
+    assistant = store.get_message(result.message_id)
+    assert json.loads(assistant["meta"])["surfaced_memory_ids"] == [old_memory]  # type: ignore[index]
+    assert store.get_memory(old_memory)["recall_count"] == 0  # type: ignore[index]
+
+
+def test_handoff_records_and_counts_only_post_handoff_surfacing(tmp_path: Path) -> None:
+    _, store, books = make_parts(tmp_path)
+    old_session = store.create_session()
+    before = memory(store, old_session, "雨伞收好了")
+    store.close_session(old_session)
+    current_session = store.create_session()
+    source_id = store.add_message(current_session, "user", "提过雨伞")
+    after = memory(store, current_session, "雨伞", source_ids=[source_id])
+    llm = SequenceLLM([
+        '{"doing":"聊天","where_we_are":"说起雨伞","emotion":"平静"}',
+        "把伞带上。",
+    ])
+    handoff = HandoffService(store, llm, context_limit=1, trigger_ratio=1, raw_tail=1)
+    chat = ChatService(
+        store, ContextBuilder(store, books), llm, handoff=handoff,
+        surfacing=service(store, config=SurfacingConfig(top_k=1)),
+    )
+
+    result = asyncio.run(chat.handle_message("雨伞"))
+
+    assert result.handoff_happened
+    assert "雨伞收好了" in str(llm.calls[0][0])
+    assert "雨伞收好了" not in str(llm.calls[1][0])
+    assert "雨伞" in str(llm.calls[1][0])
+    assistant = store.get_message(result.message_id)
+    assert json.loads(assistant["meta"])["surfaced_memory_ids"] == [after]  # type: ignore[index]
+    assert store.get_memory(before)["recall_count"] == 0  # type: ignore[index]
+    assert store.get_memory(after)["recall_count"] == 0  # type: ignore[index]
+
+    inflow_llm = ReplyLLM(
+        '{"summary":"聊了雨伞","emotion_text":"平静","certainty":0.9,'
+        f'"used_memory_ids":[{before},{after}]' + "}"
+    )
+    asyncio.run(
+        InflowService(store, inflow_llm).process_turn(result.user_message_id, result.message_id)
+    )
+
+    assert f"[#{before}]" not in inflow_llm.messages[0][0]["content"]
+    assert f"[#{after}]" in inflow_llm.messages[0][0]["content"]
+    assert store.get_memory(before)["recall_count"] == 0  # type: ignore[index]
+    assert store.get_memory(after)["recall_count"] == 1  # type: ignore[index]

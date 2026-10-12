@@ -75,13 +75,13 @@
 
 现在只要递进去就算想起一次，不相关的记忆会越递越牢。改成他真的用上了才算。
 
-- [ ] chat：不再当场 `mark_recalled`；把这一轮最终递进上下文的记忆 id 写进回复的 `meta.surfaced_memory_ids`。发生交接的那一轮，只写交接后那一批
-- [ ] inflow：这批轮次里递过记忆时，prompt 加「递给他的往事」一段，解析 `used_memory_ids`；没递过就不加
-- [ ] inflow：只认这批里递过的 id；用上的 `recall_count + 1`，`last_recalled_at` 用递给它的那条回复的时间；同一批里同一条只加一次
-- [ ] 降级：字段缺失、格式不对、整个解析失败、走原话降级路径，都当没用上
-- [ ] `src/yuwen/prompts/inflow.md` 和文档里的 prompt 同步
-- [ ] 旧数据：没有 `surfaced_memory_ids` 的回复照常流入，不报错
-- [ ] 测试覆盖：递了没用不加次数；用了加次数且时间是那条回复的；交接那轮只记交接后那批；小模型返回没递过的 id 被忽略；`every_n_turns=3` 时三轮一起判断、同一条只加一次；解析失败不加次数；没递过记忆时 prompt 里没有那一段
+- [x] chat：不再当场 `mark_recalled`；把这一轮最终递进上下文的记忆 id 写进回复的 `meta.surfaced_memory_ids`。发生交接的那一轮，只写交接后那一批
+- [x] inflow：这批轮次里递过记忆时，prompt 加「递给他的往事」一段，解析 `used_memory_ids`；没递过就不加
+- [x] inflow：只认这批里递过的 id；用上的 `recall_count + 1`，`last_recalled_at` 用递给它的那条回复的时间；同一批里同一条只加一次
+- [x] 降级：字段缺失、格式不对、整个解析失败、走原话降级路径，都当没用上
+- [x] `src/yuwen/prompts/inflow.md` 和文档里的 prompt 同步
+- [x] 旧数据：没有 `surfaced_memory_ids` 的回复照常流入，不报错
+- [x] 测试覆盖：递了没用不加次数；用了加次数且时间是那条回复的；交接那轮只记交接后那批；小模型返回没递过的 id 被忽略；`every_n_turns=3` 时三轮一起判断、同一条只加一次；解析失败不加次数；没递过记忆时 prompt 里没有那一段
 
 #### M2.2 · 之后
 

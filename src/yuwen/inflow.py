@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from importlib.resources import files
 import json
 from typing import Any
@@ -39,14 +40,57 @@ class InflowService:
         self._lock = asyncio.Lock()
         self._template = files("yuwen.prompts").joinpath("inflow.md").read_text(encoding="utf-8")
 
-    def _prompt(self, turns: list[tuple[dict[str, Any], dict[str, Any]]]) -> str:
+    def _surfaced_for_turns(
+        self, turns: list[tuple[dict[str, Any], dict[str, Any]]]
+    ) -> dict[int, str]:
+        """收集实际递给回复的记忆，以及最后一次递给它的回复时间。"""
+
+        surfaced: dict[int, str] = {}
+        for _, assistant in turns:
+            try:
+                meta = json.loads(assistant["meta"]) if assistant["meta"] else {}
+            except (TypeError, ValueError):
+                continue
+            ids = meta.get("surfaced_memory_ids") if isinstance(meta, dict) else None
+            if not isinstance(ids, list) or any(type(memory_id) is not int for memory_id in ids):
+                continue
+            for memory_id in ids:
+                if self.store.get_memory(memory_id) is not None:
+                    surfaced[memory_id] = str(assistant["created_at"])
+        return surfaced
+
+    def _prompt(
+        self,
+        turns: list[tuple[dict[str, Any], dict[str, Any]]],
+        surfaced: dict[int, str],
+    ) -> str:
         dialogue = "\n".join(
             f"{self.player_name}：{user['content']}\n"
             f"{self.character_name}：{assistant['content']}"
             for user, assistant in turns
         )
+        template = self._template
+        if surfaced:
+            lines = []
+            for memory_id in surfaced:
+                memory = self.store.get_memory(memory_id)
+                assert memory is not None
+                happened = datetime.fromisoformat(str(memory["happened_at"]))
+                line = f"[#{memory_id}] {happened.month}月{happened.day}日：{memory['summary']}"
+                if memory["quote"]:
+                    line += f"。原话「{memory['quote']}」"
+                lines.append(line)
+            template = template.replace("{递给他的往事}", "\n".join(lines))
+        else:
+            template = template.replace(
+                "\n【这几轮里递给{角色名}的往事】\n{递给他的往事}\n", ""
+            )
+            template = template.replace(
+                ",\n \"used_memory_ids\": 上面往事里，{角色名}的回复真的用上了的编号，数组。用上是指：提到了、接上了，或者因为想起它才说了这样的话。只是话题相近、{角色名}没接的不算。拿不准就不算。没有就 []",
+                "",
+            )
         return (
-            self._template.replace("{轮数}", str(len(turns)))
+            template.replace("{轮数}", str(len(turns)))
             .replace("{对话原文}", dialogue)
             .replace("{这一轮最后一条消息的时间}", str(turns[-1][1]["created_at"]))
             .replace("{玩家}", self.player_name)
@@ -68,6 +112,7 @@ class InflowService:
         if certainty is None:
             raise ValueError("流入结果的 certainty 无效")
         quote = data.get("quote")
+        used = data.get("used_memory_ids")
         return {
             "summary": summary.strip(),
             "quote": quote if isinstance(quote, str) and quote else None,
@@ -75,6 +120,11 @@ class InflowService:
             "valence": _score(data.get("valence")),
             "arousal": _score(data.get("arousal")),
             "certainty": certainty,
+            "used_memory_ids": (
+                used
+                if isinstance(used, list) and all(type(item) is int for item in used)
+                else []
+            ),
         }
 
     async def _summarize(
@@ -82,9 +132,10 @@ class InflowService:
     ) -> int:
         """将一批完整轮次写成一条记忆；模型出错时保留原话摘要。"""
 
+        surfaced = self._surfaced_for_turns(turns)
         try:
             raw = await self.llm.chat(
-                [{"role": "user", "content": self._prompt(turns)}],
+                [{"role": "user", "content": self._prompt(turns, surfaced)}],
                 small=True,
                 json_response=True,
             )
@@ -113,6 +164,9 @@ class InflowService:
             source_message_ids=source_ids,
             session_id=int(last_assistant["session_id"]),
         )
+        used_ids = set(memory.get("used_memory_ids", [])) & surfaced.keys()
+        for used_id in sorted(used_ids):
+            self.store.mark_memories_recalled([used_id], recalled_at=surfaced[used_id])
         if self.embedder is not None:
             await self.embedder.embed_memory(memory_id)
         return memory_id
