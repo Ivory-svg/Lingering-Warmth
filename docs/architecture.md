@@ -1,5 +1,7 @@
 # 参考实现：架构
 
+> 各部分的新名字（扉页、随笔、翻阅、续写、校对……）和旧名的对照，见 [design.md](design.md)「名字对照」。这份文档对着代码写，英文标识符不变；正文里的中文叫法会随代码一起换。
+
 这份文档描述参考实现长什么样。设计意图见 [design.md](design.md)，表结构见 [schema.md](schema.md)，接口见 [interfaces.md](interfaces.md)。
 
 ## 原则
@@ -76,7 +78,7 @@ chat.handle_message
 inflow：把这一轮（玩家原话 + 回复）总结成一条记忆，标情绪和确定度
 ```
 
-## 交接的流程
+## 续写（交接）的流程
 
 ```
 本窗口 token 估算 ≥ 上限 × handoff.trigger_ratio

@@ -1,5 +1,7 @@
 # 表结构（SQLite）
 
+> 各部分的新名字（扉页、随笔、翻阅、续写、校对……）和旧名的对照，见 [design.md](design.md)「名字对照」。这份文档对着代码写，英文标识符不变；正文里的中文叫法会随代码一起换。
+
 时间一律存 ISO 8601 字符串，带时区（例：`2026-10-07T20:15:00+08:00`）。
 id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 
@@ -83,7 +85,7 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | changed_at | TEXT NOT NULL | |
 | reason | TEXT | 为什么改 |
 
-### handoffs：交接
+### handoffs：续写（交接）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -95,7 +97,7 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | emotion | TEXT NOT NULL | 此刻的情绪 |
 | raw_tail_message_ids | TEXT NOT NULL | JSON 数组，新窗口要带上的最后 N 条原话 |
 
-### voice_notes：语感笔记
+### voice_notes：勘误（语感笔记）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -118,7 +120,7 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 
 ## 第二档以后（先不建，写在这里方便提前对齐）
 
-**memories 加字段（第二档的迁移）**：答应过的事、待办、“还在路上”这类会过期的状态，见 design.md「答应过的事会结束」。
+**memories 加字段（第二档的迁移）**：答应过的事、待办、“还在路上”这类会过期的状态，见 design.md「待续」。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
