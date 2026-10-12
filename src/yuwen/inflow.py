@@ -1,4 +1,4 @@
-"""把每轮对话在后台写成一条记忆。"""
+"""把每轮对话在后台写成一条随笔记忆。"""
 
 from __future__ import annotations
 
@@ -101,16 +101,16 @@ class InflowService:
     def _parse(text: str) -> dict[str, object]:
         data = json.loads(text)
         if not isinstance(data, dict):
-            raise ValueError("流入结果必须是 JSON 对象")
+            raise ValueError("随笔结果必须是 JSON 对象")
         summary = data.get("summary")
         emotion_text = data.get("emotion_text")
         certainty = _score(data.get("certainty"))
         if not isinstance(summary, str) or not summary.strip():
-            raise ValueError("流入结果缺少 summary")
+            raise ValueError("随笔结果缺少 summary")
         if not isinstance(emotion_text, str) or not emotion_text.strip():
-            raise ValueError("流入结果缺少 emotion_text")
+            raise ValueError("随笔结果缺少 emotion_text")
         if certainty is None:
-            raise ValueError("流入结果的 certainty 无效")
+            raise ValueError("随笔结果的 certainty 无效")
         quote = data.get("quote")
         used = data.get("used_memory_ids")
         return {
@@ -180,14 +180,14 @@ class InflowService:
             user = self.store.get_message(user_message_id)
             assistant = self.store.get_message(assistant_message_id)
             if user is None or assistant is None:
-                raise ValueError("流入找不到对应的原话")
+                raise ValueError("随笔找不到对应的原话")
             meta = json.loads(assistant["meta"]) if assistant["meta"] else {}
             linked_user_id = meta.get("inflow_user_message_id")
             if linked_user_id is None:
                 meta["inflow_user_message_id"] = user_message_id
                 self.store.update_message_meta(assistant_message_id, meta)
             elif linked_user_id != user_message_id:
-                raise ValueError("流入的玩家原话与回复不匹配")
+                raise ValueError("随笔的玩家原话与回复不匹配")
             session_id = int(assistant["session_id"])
             pending = self.store.list_pending_inflow_turns(session_id)
             last_memory_id = None
@@ -197,7 +197,7 @@ class InflowService:
             return last_memory_id
 
     async def flush_pending(self, session_id: int) -> list[int]:
-        """交接前把本窗口没攒满的完整轮次也写下来。"""
+        """续写前把本窗口没攒满的完整轮次也写下来。"""
 
         async with self._lock:
             memory_ids: list[int] = []

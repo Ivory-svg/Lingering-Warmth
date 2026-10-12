@@ -1,4 +1,4 @@
-"""只读加载世界书核心、词条和语料，并兼容旧目录。"""
+"""只读加载扉页核心、词条和语料，并兼容旧目录。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class WorldbookError(RuntimeError):
-    """世界书无法读取或格式不正确。"""
+    """扉页无法读取或格式不正确。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +42,7 @@ class WorldbookReader:
         if not modern:
             core = self.config.prompt_file
             if not core.is_file():
-                raise WorldbookError(f"找不到世界书核心：{core}")
+                raise WorldbookError(f"找不到扉页核心：{core}")
         entry_paths = sorted((directory / "entries").glob("*.md"))
         corpus = directory / "corpus.md"
         corpus_path = corpus if corpus.is_file() else None
@@ -78,12 +78,12 @@ class WorldbookReader:
             if key.strip()
         )
         if not keys:
-            logger.warning("世界书词条缺少 keys，已跳过：%s", path)
+            logger.warning("扉页词条缺少 keys，已跳过：%s", path)
             return None
         try:
             priority = int(fields.get("priority", "0"))
         except ValueError as exc:
-            raise WorldbookError(f"世界书词条 priority 不是整数：{path}") from exc
+            raise WorldbookError(f"扉页词条 priority 不是整数：{path}") from exc
         return WorldbookEntry(path.stem, body, keys, priority)
 
     def _load(self) -> None:
@@ -100,7 +100,7 @@ class WorldbookReader:
                 return
             core_text = core.read_text(encoding="utf-8").strip()
             if not modern:
-                logger.warning("世界书使用旧格式，建议拆分为 core.md、entries/ 和 corpus.md")
+                logger.warning("扉页使用旧格式，建议拆分为 core.md、entries/ 和 corpus.md")
                 legacy_parts = []
                 for path in legacy_paths:
                     text = path.read_text(encoding="utf-8").strip()
@@ -120,7 +120,7 @@ class WorldbookReader:
                     if line.strip() and not line.lstrip().startswith("#")
                 )
         except OSError as exc:
-            raise WorldbookError(f"读取世界书失败：{exc}") from exc
+            raise WorldbookError(f"读取扉页失败：{exc}") from exc
         self._signature = signature
         self._core = core_text
         self._entries = entries
@@ -143,7 +143,7 @@ class WorldbookReader:
             length = len(entry.content)
             if length > entry_budget:
                 logger.warning(
-                    "世界书词条「%s」有 %d 字，超过 entry_budget=%d，"
+                    "扉页词条「%s」有 %d 字，超过 entry_budget=%d，"
                     "永远不会被带入；请拆短词条",
                     entry.name,
                     length,

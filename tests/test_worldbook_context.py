@@ -92,6 +92,7 @@ def test_worldbook_warns_at_startup_for_entry_that_never_fits_budget(
         pass
 
     assert "long" in caplog.text
+    assert "扉页词条" in caplog.text
     assert "超过 entry_budget=4" in caplog.text
     assert "请拆短词条" in caplog.text
     assert "short" not in caplog.text

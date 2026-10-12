@@ -250,6 +250,7 @@ def test_overturn_player_note_only_disables_note(tmp_path: Path) -> None:
     assert history.json()[-1]["content"] == "先坐下。"
     assert history.json()[-1]["ooc"] is None
     assert missing.status_code == 404
+    assert missing.json()["detail"] == "找不到这条勘误"
     note = store.get_voice_note(note_id)
     assert note["active"] == 0  # type: ignore[index]
     assert note["overturned_at"] is not None  # type: ignore[index]

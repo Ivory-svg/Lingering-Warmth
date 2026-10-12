@@ -1,4 +1,4 @@
-"""OOC 守门人与语感笔记。"""
+"""OOC 校对与勘误。"""
 
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ class GatekeeperService:
     def _parse(text: str) -> GatekeeperResult:
         data = json.loads(text)
         if not isinstance(data, dict):
-            raise ValueError("守门人结果必须是 JSON 对象")
+            raise ValueError("校对结果必须是 JSON 对象")
         verdict = data.get("verdict")
         if verdict == "in_character":
             return GatekeeperResult("in_character", "", None)
@@ -93,7 +93,7 @@ class GatekeeperService:
             or not isinstance(rewritten, str)
             or not rewritten.strip()
         ):
-            raise ValueError("守门人结果字段无效")
+            raise ValueError("校对结果字段无效")
         return GatekeeperResult("ooc", reason.strip(), rewritten.strip())
 
     async def review(
@@ -153,7 +153,7 @@ class GatekeeperService:
             if reviewed.verdict == "in_character":
                 return GatekeeperResult(
                     "in_character",
-                    "守门人认为这句没有偏离角色。",
+                    "校对认为这句没有偏离角色。",
                     None,
                 )
             rewritten = reviewed.rewritten

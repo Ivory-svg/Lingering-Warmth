@@ -1,4 +1,4 @@
-"""上下文接近上限时写交接并开启新窗口。"""
+"""上下文接近上限时续写并开启新窗口。"""
 
 from __future__ import annotations
 
@@ -64,12 +64,12 @@ class HandoffService:
     def _parse(text: str) -> dict[str, str]:
         data = json.loads(text)
         if not isinstance(data, dict):
-            raise ValueError("交接结果必须是 JSON 对象")
+            raise ValueError("续写结果必须是 JSON 对象")
         result: dict[str, str] = {}
         for key in ("doing", "where_we_are", "emotion"):
             value = data.get(key)
             if not isinstance(value, str) or not value.strip():
-                raise ValueError(f"交接结果缺少 {key}")
+                raise ValueError(f"续写结果缺少 {key}")
             result[key] = value.strip()
         return result
 
@@ -102,7 +102,7 @@ class HandoffService:
             )
             content = self._parse(raw)
         except (LLMError, ValueError, TypeError):
-            # 交接摘要缺失时仍要换窗，让原话继续陪着下一轮对话。
+            # 续写摘要缺失时仍要换窗，让原话继续陪着下一轮对话。
             content = {
                 "doing": "未记录",
                 "where_we_are": "未记录",

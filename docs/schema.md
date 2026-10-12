@@ -18,16 +18,16 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | key | TEXT PK | 固定为 `version` |
 | value | TEXT | 当前 schema 版本 |
 
-### sessions：窗口
+### sessions：卷
 
-一个 session 就是一个上下文窗口。交接时关闭旧的、开新的。
+一个 session 就是一卷上下文。续写时关闭旧卷、开新卷。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | INTEGER PK | |
 | started_at | TEXT NOT NULL | |
-| ended_at | TEXT | 交接后填 |
-| continues_handoff_id | INTEGER | 接续哪一份交接，第一个窗口为空 |
+| ended_at | TEXT | 续写后填 |
+| continues_handoff_id | INTEGER | 接续哪一份续写摘要，第一卷为空 |
 
 ### messages：原话
 
@@ -38,7 +38,7 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | id | INTEGER PK | |
 | session_id | INTEGER NOT NULL | → sessions.id |
 | role | TEXT NOT NULL | `user` / `assistant` / `event` |
-| content | TEXT NOT NULL | 原文。被守门人改写时，这里存实际发出的版本 |
+| content | TEXT NOT NULL | 原文。被校对改写时，这里存实际发出的版本 |
 | created_at | TEXT NOT NULL | |
 | meta | TEXT | JSON，可选。如 `{"ooc_rewritten": true, "voice_note_id": 3}`；第二档起，回复上还有 `surfaced_memory_ids`：这一轮递给他的记忆 id |
 
@@ -46,12 +46,12 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 
 ### memories：河流
 
-流入写这里。第二档以后浮现、遗忘、重铸都操作这张表。
+随笔写这里。第二档以后翻阅、褪墨、修订都操作这张表。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | INTEGER PK | |
-| kind | TEXT NOT NULL | `turn`（每轮流入）/ `handoff`（交接时的情绪）；以后加 `bubble` `touch` `dream` |
+| kind | TEXT NOT NULL | `turn`（每轮随笔）/ `handoff`（续写时的情绪）；以后加 `bubble` `touch` `dream` |
 | created_at | TEXT NOT NULL | 写入时间 |
 | happened_at | TEXT NOT NULL | 事情发生的时间（一般等于这一轮最后一条消息的时间） |
 | summary | TEXT NOT NULL | 这一轮发生了什么，第三人称，一两句 |
@@ -59,23 +59,23 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | emotion_text | TEXT NOT NULL | 情绪的文字描述，如“有点委屈，后来被哄好了” |
 | valence | REAL | 愉悦度 0–1，可空 |
 | arousal | REAL | 激动度 0–1，可空 |
-| certainty | REAL NOT NULL | 有多确定 0–1。流入时默认 0.9；以后浮现时低于阈值要说“好像是” |
+| certainty | REAL NOT NULL | 有多确定 0–1。写随笔时默认 0.9；翻阅时低于阈值要说“好像是” |
 | source_message_ids | TEXT NOT NULL | JSON 数组，追溯到原话 |
 | session_id | INTEGER NOT NULL | → sessions.id |
-| sealed | INTEGER NOT NULL DEFAULT 0 | 1 = 封存（“这个忘掉吧”），平时不浮现 |
-| weight | REAL NOT NULL DEFAULT 1.0 | 第二档遗忘用，第一档只写不读 |
+| sealed | INTEGER NOT NULL DEFAULT 0 | 1 = 封页（“这个忘掉吧”），平时不翻阅 |
+| weight | REAL NOT NULL DEFAULT 1.0 | 第二档褪墨用，第一档只写不读 |
 | last_recalled_at | TEXT | 第二档用 |
 | embedding | BLOB | 第二档用，float32 小端数组 |
 | embedding_model | TEXT | 算向量用的模型名；换模型后据此重算（迁移 003 新增） |
-| recall_count | INTEGER NOT NULL DEFAULT 0 | 被浮现过几次，遗忘计算用（迁移 003 新增） |
+| recall_count | INTEGER NOT NULL DEFAULT 0 | 翻到且真的用上后想起的次数，褪墨计算用（迁移 003 新增） |
 
 情绪先文字 + 数值两样都存，数值可空。以后哪一样没用上再删。
 
-`weight` 保留不删，但第二档的遗忘不读它：“还记得多少”在浮现时现算，见 interfaces.md 的 surfacing。
+`weight` 保留不删，但第二档的褪墨不读它：“还记得多少”在翻阅时现算，见 interfaces.md 的 surfacing。
 
 ### memory_history：改写历史
 
-任何对 memories 的修改，改之前先把整行存进来。第一档只建表，第三档重铸时开始用。
+任何对 memories 的修改，改之前先把整行存进来。第一档只建表，第三档修订时开始用。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -112,9 +112,9 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | overturned_at | TEXT | 玩家说“其实他会这么说”的时间；为空表示没被推翻（迁移 002 新增） |
 | overturn_note | TEXT | 玩家推翻时留的话，可空（迁移 002 新增） |
 
-**守门人看走眼的记录**：`source = gatekeeper` 且 `overturned_at` 不为空的语感笔记，就是守门人判错的例子。以后调守门人的 prompt 时拿来对照，不单独建表。
+**校对看走眼的记录**：`source = gatekeeper` 且 `overturned_at` 不为空的勘误，就是校对判错的例子。以后调校对的 prompt 时拿来对照，不单独建表。
 
-**推翻后原话怎么办**：`messages.content` 仍然不改。推翻时在这条消息的 `meta` 里记 `{"restored": true, "voice_note_id": 12}`；拼上下文和 `GET /messages` 时，遇到 `restored` 就改用这条语感笔记的 `original`。这样“原话永不改写”的规则不破，推翻也随时可以追溯。
+**推翻后原话怎么办**：`messages.content` 仍然不改。推翻时在这条消息的 `meta` 里记 `{"restored": true, "voice_note_id": 12}`；拼上下文和 `GET /messages` 时，遇到 `restored` 就改用这条勘误的 `original`。这样“原话永不改写”的规则不破，推翻也随时可以追溯。
 
 ---
 
@@ -131,12 +131,12 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 
 | 表 | 用途 | 关键字段 |
 |---|---|---|
-| diary_entries | 日记 | date, title, content, written_at, memory_ids |
-| diary_replies | 玩家在日记下的回复 | entry_id, content, created_at, read_by_ai_at |
-| keepsakes | 信物 | name, aliases(JSON), first_seen_at |
-| keepsake_links | 信物 ↔ 记忆 | keepsake_id, memory_id |
-| anniversaries | 纪念日 | date(MM-DD 或完整日期), title, source(`manual`/`keepsake`), memory_id |
-| dream_books | 梦的合集，按月一本 | month(YYYY-MM), created_at, updated_at |
-| dreams | 合集里的一个梦（追加，不单独浮现） | book_id, created_at, based_on_memory_id, content, used_in_wake |
-| wake_log | 唤醒记录 | checked_at, decided(`send`/`skip`), reason, message_id |
+| diary_entries | 折角 | date, title, content, written_at, memory_ids |
+| diary_replies | 玩家在折角下的回复 | entry_id, content, created_at, read_by_ai_at |
+| keepsakes | 夹页 | name, aliases(JSON), first_seen_at |
+| keepsake_links | 夹页 ↔ 记忆 | keepsake_id, memory_id |
+| anniversaries | 纪年 | date(MM-DD 或完整日期), title, source(`manual`/`keepsake`), memory_id |
+| dream_books | 留白合集，按月一本 | month(YYYY-MM), created_at, updated_at |
+| dreams | 留白合集里的一个梦（追加，不单独翻阅） | book_id, created_at, based_on_memory_id, content, used_in_wake |
+| wake_log | 来信记录 | checked_at, decided(`send`/`skip`), reason, message_id |
 | player_days | 玩家的日子（经期等，默认关闭） | date, kind, note, source |
