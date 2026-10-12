@@ -214,6 +214,7 @@ priority: 5
 | 降级 | JSON 解析失败时：summary 存原话前 100 字，emotion_text 存“未标注”，certainty 0.5 |
 | 时机 | 回复发出后在后台跑，不阻塞玩家 |
 | 攒几轮 | `inflow.every_n_turns`（默认 1）。设成 N 时，每攒满 N 轮才调一次小模型，把这 N 轮总结成一条记忆，`source_message_ids` 包含这 N 轮的所有原话。交接前没攒满的也要先总结掉，不能丢 |
+| 用上了哪些（第二档） | 这批轮次的回复里，`meta.surfaced_memory_ids` 有东西的，把这些记忆一起列给小模型，让它在 `used_memory_ids` 里返回回复真的用上的。见下 |
 
 小模型返回格式：
 
@@ -224,9 +225,18 @@ priority: 5
   "emotion_text": "疲惫，被关心后放松了一点",
   "valence": 0.4,
   "arousal": 0.3,
-  "certainty": 0.9
+  "certainty": 0.9,
+  "used_memory_ids": [12]
 }
 ```
+
+**`used_memory_ids` 怎么用**
+
+- 只认这批轮次里真的递过的 id，小模型返回别的数字一律忽略
+- 用上的那条：`recall_count + 1`，`last_recalled_at` 设为递给它的那条回复的时间（不是流入跑的时间）。同一批里递过好几次的，只加一次，时间取最后那条回复
+- 这批里没递过任何记忆时，prompt 里不加那一段，也不读这个字段
+
+**降级**：字段缺失、不是数组、JSON 整个解析失败、走了“原话前 100 字”的降级路径，都当作一条也没用上，不加次数。宁可少记一次，不让错的越记越牢。
 
 ### handoff（交接）
 
@@ -314,7 +324,11 @@ priority: 5
 - 相似度低于 `surfacing.min_similarity`（embedding 默认 0.45，字面匹配默认 0.2）的丢掉
 - 取前 `surfacing.top_k` 条（默认 4），总字数不超过 `surfacing.max_chars`（默认 1500）
 
-**6. 被想起**：真正递给他的那几条，`last_recalled_at` 设为现在，`recall_count + 1`。没递出去的不动。
+**6. 被想起**：递给他不等于想起，用上了才算。
+
+- 浮现时不动 `recall_count` 和 `last_recalled_at`
+- 这一轮真正递进上下文的那几条，id 记在这条回复的 `messages.meta.surfaced_memory_ids` 里。发生交接的那一轮，只记交接后重新找的那一批：交接前那批没有递出去
+- 流入总结到这一轮时，由小模型判断回复里用上了哪几条，只给用上的加次数，见 inflow
 
 **7. 递给他的格式**：一条 system，插在交接摘要和交接原话之间（见 context 第 8 条）。
 
