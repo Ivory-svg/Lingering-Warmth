@@ -75,7 +75,7 @@ class ChatService:
         )
         handoff_happened = False
         handoff_memory_id = None
-        final_recall = None
+        final_recall = first_recall
         if self.handoff is not None:
             handoff = await self.handoff.maybe_handoff(session_id, messages)
             session_id = handoff.session_id
@@ -89,8 +89,6 @@ class ChatService:
             messages = self.context.build(
                 session_id, surfaced=final_recall.text if final_recall else None
             )
-        if self.surfacing is not None:
-            self.surfacing.mark_recalled(first_recall, final_recall)
         original_reply = await self.llm.chat(messages)
         gatekeeper_result = None
         if self.gatekeeper is not None:
@@ -110,6 +108,7 @@ class ChatService:
         reply_meta = {
             "ooc_rewritten": ooc_rewritten,
             "inflow_user_message_id": user_message_id,
+            "surfaced_memory_ids": list(final_recall.memory_ids) if final_recall else [],
         }
         message_id = self.store.add_message(
             session_id,

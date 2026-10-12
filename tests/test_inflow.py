@@ -89,6 +89,173 @@ def test_inflow_prompt_uses_configured_names(tmp_path: Path) -> None:
     assert "不要用“他”“她”指代这两个人" in prompt
     assert "{玩家}" not in prompt
     assert "{角色名}" not in prompt
+    assert "递给林舟的往事" not in prompt
+    assert "used_memory_ids" not in prompt
+
+
+def test_inflow_prompt_lists_only_surfaced_memories(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    user_id, assistant_id = turn(store)
+    session_id = store.get_message(assistant_id)["session_id"]  # type: ignore[index]
+    memory_id = store.add_memory(
+        kind="turn",
+        happened_at="2026-10-03T10:00:00+08:00",
+        summary="小雨加班很累，林舟让小雨先吃饭",
+        quote="今天好累",
+        emotion_text="疲惫",
+        certainty=0.9,
+        source_message_ids=[],
+        session_id=session_id,
+    )
+    store.update_message_meta(assistant_id, {"surfaced_memory_ids": [memory_id]})
+    llm = ReplyLLM(
+        '{"summary":"聊了晚饭","emotion_text":"平静","certainty":0.9,'
+        f'"used_memory_ids":[{memory_id}]' + "}"
+    )
+
+    asyncio.run(InflowService(store, llm, character_name="林舟").process_turn(user_id, assistant_id))
+
+    prompt = llm.messages[0][0]["content"]
+    assert "【这几轮里递给林舟的往事】" in prompt
+    assert f"[#{memory_id}] 10月3日：小雨加班很累，林舟让小雨先吃饭。原话「今天好累」" in prompt
+    assert "used_memory_ids" in prompt
+    assert "{递给他的往事}" not in prompt
+
+
+def test_inflow_counts_only_used_surfaced_memory_at_reply_time(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    used = store.add_memory(
+        kind="turn", happened_at="2026-10-03T10:00:00+08:00",
+        summary="约好带伞", emotion_text="平静", certainty=0.9,
+        source_message_ids=[], session_id=session_id,
+    )
+    unused = store.add_memory(
+        kind="turn", happened_at="2026-10-03T10:00:00+08:00",
+        summary="买了书", emotion_text="开心", certainty=0.9,
+        source_message_ids=[], session_id=session_id,
+    )
+    not_surfaced = store.add_memory(
+        kind="turn", happened_at="2026-10-03T10:00:00+08:00",
+        summary="聊了电影", emotion_text="开心", certainty=0.9,
+        source_message_ids=[], session_id=session_id,
+    )
+    user_id = store.add_message(session_id, "user", "今天下雨")
+    reply_time = "2026-10-07T20:15:00+08:00"
+    assistant_id = store.add_message(
+        session_id, "assistant", "带上伞。", created_at=reply_time,
+        meta={"surfaced_memory_ids": [used, unused]},
+    )
+    llm = ReplyLLM(
+        '{"summary":"聊了下雨","emotion_text":"平静","certainty":0.9,'
+        f'"used_memory_ids":[{used},{not_surfaced}]' + "}"
+    )
+
+    asyncio.run(InflowService(store, llm).process_turn(user_id, assistant_id))
+
+    assert store.get_memory(used)["recall_count"] == 1  # type: ignore[index]
+    assert store.get_memory(used)["last_recalled_at"] == reply_time  # type: ignore[index]
+    assert store.get_memory(unused)["recall_count"] == 0  # type: ignore[index]
+    assert store.get_memory(unused)["last_recalled_at"] is None  # type: ignore[index]
+    assert store.get_memory(not_surfaced)["recall_count"] == 0  # type: ignore[index]
+
+
+def test_inflow_batch_counts_repeated_memory_once_at_last_reply(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    old = store.add_memory(
+        kind="turn", happened_at="2026-10-03T10:00:00+08:00",
+        summary="约好带伞", emotion_text="平静", certainty=0.9,
+        source_message_ids=[], session_id=session_id,
+    )
+    llm = ReplyLLM(
+        '{"summary":"三轮聊了下雨","emotion_text":"平静","certainty":0.9,'
+        f'"used_memory_ids":[{old},{old}]' + "}"
+    )
+    inflow = InflowService(store, llm, every_n_turns=3)
+    for number in range(1, 4):
+        user_id = store.add_message(session_id, "user", f"第{number}轮")
+        assistant_id = store.add_message(
+            session_id, "assistant", f"第{number}句",
+            created_at=f"2026-10-07T20:0{number}:00+08:00",
+            meta={"surfaced_memory_ids": [old]},
+        )
+        asyncio.run(inflow.process_turn(user_id, assistant_id))
+
+    prompt = llm.messages[0][0]["content"]
+    assert "下面是3轮对话" in prompt
+    assert prompt.count(f"[#{old}]") == 1
+    assert store.get_memory(old)["recall_count"] == 1  # type: ignore[index]
+    assert store.get_memory(old)["last_recalled_at"] == "2026-10-07T20:03:00+08:00"  # type: ignore[index]
+
+
+@pytest.mark.parametrize(
+    "model_reply",
+    [
+        '{"summary":"聊了下雨","emotion_text":"平静","certainty":0.9,"used_memory_ids":[]}',
+        '{"summary":"聊了下雨","emotion_text":"平静","certainty":0.9}',
+        '{"summary":"聊了下雨","emotion_text":"平静","certainty":0.9,"used_memory_ids":"1"}',
+        '{"summary":"聊了下雨","emotion_text":"平静","certainty":0.9,"used_memory_ids":[true]}',
+        '{"emotion_text":"平静","certainty":0.9,"used_memory_ids":[1]}',
+        "这不是 JSON",
+    ],
+)
+def test_inflow_unconfirmed_or_invalid_used_result_never_counts_recall(
+    tmp_path: Path, model_reply: str
+) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    old = store.add_memory(
+        kind="turn", happened_at="2026-10-03T10:00:00+08:00",
+        summary="约好带伞", emotion_text="平静", certainty=0.9,
+        source_message_ids=[], session_id=session_id,
+    )
+    user_id = store.add_message(session_id, "user", "今天下雨")
+    assistant_id = store.add_message(
+        session_id, "assistant", "带上伞。",
+        meta={"surfaced_memory_ids": [old]},
+    )
+
+    new_id = asyncio.run(
+        InflowService(store, ReplyLLM(model_reply)).process_turn(user_id, assistant_id)
+    )
+
+    assert new_id is not None
+    assert store.get_memory(old)["recall_count"] == 0  # type: ignore[index]
+    assert store.get_memory(old)["last_recalled_at"] is None  # type: ignore[index]
+    if model_reply == "这不是 JSON" or '"summary"' not in model_reply:
+        assert store.get_memory(new_id)["emotion_text"] == "未标注"  # type: ignore[index]
+
+
+def test_inflow_accepts_old_reply_without_surfaced_memory_ids(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    old = store.add_memory(
+        kind="turn", happened_at="2026-10-03T10:00:00+08:00",
+        summary="约好带伞", emotion_text="平静", certainty=0.9,
+        source_message_ids=[], session_id=session_id,
+    )
+    user_id = store.add_message(session_id, "user", "今天下雨")
+    assistant_id = store.add_message(
+        session_id, "assistant", "带上伞。",
+        meta={"inflow_user_message_id": user_id},
+    )
+    llm = ReplyLLM(
+        '{"summary":"聊了下雨","emotion_text":"平静","certainty":0.9,'
+        f'"used_memory_ids":[{old}]' + "}"
+    )
+
+    new_id = asyncio.run(InflowService(store, llm).process_turn(user_id, assistant_id))
+
+    assert new_id is not None
+    assert store.get_memory(old)["recall_count"] == 0  # type: ignore[index]
+    assert "递给他的往事" not in llm.messages[0][0]["content"]
+    assert "used_memory_ids" not in llm.messages[0][0]["content"]
 
 
 class BatchLLM:

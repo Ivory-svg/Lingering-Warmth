@@ -132,7 +132,7 @@ class SurfacingService:
         return line
 
     async def find(self, session_id: int, player_text: str) -> SurfacedResult | None:
-        """挑选记忆但暂不计次，供交接前后决定最终带入内容。"""
+        """挑选记忆但不计次，供交接前后决定最终带入内容。"""
 
         if not self.config.enabled or self.config.max_chars <= len(_INTRO) + 1:
             return None
@@ -196,18 +196,8 @@ class SurfacingService:
             logger.warning("字面浮现失败，本轮跳过：%s", exc)
             return None
 
-    def mark_recalled(self, *results: SurfacedResult | None) -> None:
-        ids = sorted({memory_id for result in results if result for memory_id in result.memory_ids})
-        if not ids:
-            return
-        try:
-            self.store.mark_memories_recalled(ids, recalled_at=self.clock().isoformat())
-        except Exception as exc:
-            logger.warning("记录记忆浮现失败，继续本轮对话：%s", exc)
-
     async def recall(self, session_id: int, player_text: str) -> str | None:
-        """直接浮现一轮；失败时不打断对话。"""
+        """直接浮现一轮；失败时不打断对话，也不在这里计次。"""
 
         result = await self.find(session_id, player_text)
-        self.mark_recalled(result)
         return result.text if result else None
