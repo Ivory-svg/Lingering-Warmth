@@ -1,6 +1,6 @@
 # 给实作者的说明
 
-第一档（M1、M1.1、M1.2）、M2.1 和 M2.1.1 已经完成。现在要做的是 [docs/roadmap.md](docs/roadmap.md) 里的「换名」，按清单顺序做。各部分的新名字和旧名的对照，见 [docs/design.md](docs/design.md)「名字对照」。动手之前按顺序读：
+第一档（M1、M1.1、M1.2）、M2.1、M2.1.1 和「换名」已经完成。现在要做的是 [docs/roadmap.md](docs/roadmap.md) 里的 M2.2「登录与目录」，按清单顺序做，先登录后目录。各部分的新名字和旧名的对照，见 [docs/design.md](docs/design.md)「名字对照」。动手之前按顺序读：
 
 1. [docs/design.md](docs/design.md)：为什么这样做
 2. [docs/architecture.md](docs/architecture.md)：模块、流程、目录、配置
@@ -39,7 +39,7 @@
 - 不要引入 SQLite 以外的数据库，不要引入向量数据库
 - 不要写入世界书文件
 - 不要真删除 memories 里的行
-- 不要实作第二、三档的功能，只按 schema.md 留好字段
+- 不要实作 roadmap 里还没排到的功能，只按 schema.md 留好字段
 - 不要往仓库里放任何真实的人的聊天记录、世界书、数据库
 - 不要内置任何语音模型或原作素材
 - 修改从 Ombre Brain 或 EbbingFlow 直接拿来的代码时，在文件头注明来源和改动，并同步更新 NOTICE

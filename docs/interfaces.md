@@ -117,7 +117,7 @@
 
 ### `GET /export`
 
-完整导出：所有表的所有行，一个 JSON 文件。扉页文件不在数据库里，不导出。
+完整导出：所有表的所有行，一个 JSON 文件。扉页文件不在数据库里，不导出。`auth_sessions`（登录）不是记忆，也不导出。
 
 ```json
 {
@@ -132,6 +132,164 @@
 ### `GET /health`
 
 返回 `{"ok": true, "schema_version": "3"}`。
+
+---
+
+## HTTP 接口（登录与目录）
+
+设计见 [design.md](design.md)「目录」「登录：只有你能打开这本书」。
+
+### 登录
+
+**默认全锁。** 用一个中间件统一拦，不在每个接口上单独加。放行的只有：`GET /login`、`POST /login`、`GET /health`。没登录时：
+
+- 页面（`GET /`、`GET /catalog`）→ 303 跳到 `/login`
+- 其他接口 → 401 `{"detail": "请先登录"}`
+
+**启动检查**：`auth.password` 为空、还是示例里的占位文字、或者不到 8 个字符，就不启动，报错：“请在 config.toml 的 [auth] 里设置 password（至少 8 位），设好再启动。”
+
+**防跨站**：`POST`、`PATCH` 请求必须是 `Content-Type: application/json`，否则 415。加上 cookie 的 `SameSite=Lax`，别的网站就没法替你发请求。
+
+#### `GET /login`
+
+登录页：一个密码框、一个按钮。已经登录的直接跳回 `/`。页面自带样式和脚本，不引用任何要登录才能拿到的文件，不然登录页自己都打不开。
+
+#### `POST /login`
+
+```json
+{ "password": "……" }
+```
+
+- 对：`{"ok": true}`，并种下 cookie
+- 错：401 `{"detail": "密码不对"}`
+- 错太多次：429 `{"detail": "试错太多次了，过一会儿再来", "retry_after_seconds": 600}`，带 `Retry-After` 头
+
+比对密码：两边都先算 sha256，再用 `hmac.compare_digest` 比，不用 `==`。
+
+**输错限制**：按来源 IP 计数（`request.client.host`），15 分钟内错 5 次，从第 5 次起锁 15 分钟；登录成功清零。存在内存里，重启就清空，够用。放在反向代理后面时所有人是同一个 IP，等于全局计数；只有一个人用，可以接受。
+
+**cookie**：
+
+| 项 | 值 |
+|---|---|
+| 名字 | `yuwen_session` |
+| 值 | `secrets.token_urlsafe(32)` 生成的随机串 |
+| 属性 | `HttpOnly`、`SameSite=Lax`、`Path=/`、`Max-Age` = `auth.session_days` 天 |
+| `Secure` | `auth.secure_cookie = true` 时加。放在 https 后面的应该打开 |
+
+服务器只存 cookie 值的 sha256，不存原文，见 schema.md 的 `auth_sessions`。
+
+**每次请求怎么验**：cookie 的 sha256 在表里、没过期、`password_fingerprint` 和现在的密码对得上，才算登录。对不上的那一行顺手删掉。`last_seen_at` 最多一小时更新一次，不用每个请求都写库。
+
+`password_fingerprint` = `sha256("yuwen-session:" + 密码)`。换了密码，旧的指纹全对不上，以前登录过的设备就都失效了。
+
+#### `POST /logout`
+
+删掉这台设备的那一行，清掉 cookie。返回 `{"ok": true}`。前端发的时候也带 `Content-Type: application/json` 和 `{}`，免得被 415 拦下。
+
+### 目录
+
+#### `GET /catalog`
+
+目录页。聊天页顶上加一个“目录”的入口，目录页有回聊天的入口，角落有“登出”。
+
+#### `GET /memories`
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `filter` | `all` | `all` 没封页的全部 / `unclear` 记不太清的 / `fading` 快褪掉的 / `sealed` 封页的 |
+| `q` | 空 | 搜一个词：在 `summary`、`quote`、`emotion_text` 里找，按字面包含 |
+| `offset` | 0 | |
+| `limit` | 50 | 最多 200 |
+
+- 只列 `kind` 为 `turn`、`handoff` 的。梦在留白的合集里，不进目录
+- 按 `happened_at` 从新到旧，同一时间按 id 从大到小
+- `unclear`：没封页，且 `certainty < surfacing.clear_threshold`
+- `fading`：没封页，且还记得多少 < 0.2
+
+响应：
+
+```json
+{
+  "total": 132,
+  "items": [
+    {
+      "id": 41,
+      "kind": "turn",
+      "happened_at": "2026-10-03T20:15:00+08:00",
+      "summary": "阿栀说加班很累，沈砚让阿栀先去吃饭",
+      "quote": "今天好累",
+      "emotion_text": "疲惫，被关心后放松了一点",
+      "certainty": 0.9,
+      "clear": true,
+      "retention": 0.46,
+      "recall_count": 2,
+      "last_recalled_at": "2026-10-08T21:02:00+08:00",
+      "sealed": false,
+      "edited": false
+    }
+  ]
+}
+```
+
+- `clear`：`certainty ≥ surfacing.clear_threshold`，和翻阅递给他时标“记得清楚”的是同一个判断
+- `retention`：还记得多少，0–1，两位小数。**和翻阅用同一个函数算**，不要另写一份公式，免得两边对不上
+- `edited`：`memory_history` 里有这条的记录
+- `embedding` 不返回
+
+#### `GET /memories/{id}`
+
+一条记忆的全部，加上原话和历史。`kind` 不是 `turn`、`handoff` 的返回 404。
+
+```json
+{
+  "id": 41,
+  "...": "同上面 items 里的字段",
+  "sources": [
+    { "message_id": 127, "role": "user", "content": "今天好累", "created_at": "..." },
+    { "message_id": 128, "role": "assistant", "content": "……", "created_at": "..." }
+  ],
+  "history": [
+    {
+      "changed_at": "...",
+      "reason": "玩家改正：不是加班，是考试",
+      "snapshot": { "summary": "…", "quote": "…", "emotion_text": "…", "certainty": 0.6, "sealed": false }
+    }
+  ]
+}
+```
+
+- `sources`：按 `source_message_ids` 取原话，内容用和 `GET /messages` 一样的规则（推翻过的显示原句）
+- `history`：从新到旧
+
+#### `PATCH /memories/{id}`
+
+玩家改正记忆。
+
+```json
+{ "summary": "阿栀说考试很累，沈砚让阿栀先去吃饭", "quote": null, "emotion_text": null, "reason": "不是加班，是考试" }
+```
+
+- `summary`、`quote`、`emotion_text` 至少给一个；不给或给 null 的不改。`quote` 给空字符串表示清空
+- 长度：`summary` 1–300 字，`quote` 0–200 字，`emotion_text` 1–100 字。超了 422
+- 和现在一模一样的，不写历史，直接返回
+- 改之前先把整行（不含 `embedding`）存进 `memory_history`，`reason` 写 `玩家改正：{reason}`，没填就写 `玩家改正`
+- 改完：`certainty` 设为 1.0（你亲手改的就是确定的）；`embedding`、`embedding_model` 清空，后台重算一次。没配 embedding 就只清空
+- 响应同 `GET /memories/{id}`
+
+#### `POST /memories/{id}/seal`
+
+封页或撕开。
+
+```json
+{ "sealed": true }
+```
+
+- 和现在状态一样的，什么都不做，直接返回
+- 否则先存一条 `memory_history`，`reason` 写 `封页` 或 `撕开`，再改 `sealed`
+- 响应：`{"id": 41, "sealed": true}`
+
+**目录里没有删除。** 任何接口都不删 `memories` 的行。
 
 ---
 
@@ -390,6 +548,6 @@ priority: 5
 |---|---|---|
 | `POST /events` | 感应事件（戳一下、摸头），写成 `role=event` 的消息 | 二 |
 | `GET /diary?month=2026-10` / `POST /diary/{id}/reply` | 折角日历与回复 | 二 |
-| `POST /memories/{id}/seal` | “这个忘掉吧” | 二 |
+| 对话里说“这个忘掉吧” | 认出来以后，走和 `POST /memories/{id}/seal` 同一套封页逻辑 | 二 |
 | `GET /wake/pending` | 前端轮询来信消息（或改成 WebSocket 推送） | 三 |
 | 来信事件对外通知 | 他主动说了一句话时，把内容、原因和“日常”里此刻在做什么推给外部程序（webhook），给声音、形象、报备那个项目用 | 三 |

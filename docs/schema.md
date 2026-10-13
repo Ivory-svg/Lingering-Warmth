@@ -75,7 +75,7 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 
 ### memory_history：改写历史
 
-任何对 memories 的修改，改之前先把整行存进来。第一档只建表，第三档修订时开始用。
+任何对 memories 的修改，改之前先把整行（不含 `embedding`）存进来。目录里玩家改正、封页、撕开时开始用；第三档修订时也写这里。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -84,6 +84,23 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | snapshot | TEXT NOT NULL | 修改前整行的 JSON |
 | changed_at | TEXT NOT NULL | |
 | reason | TEXT | 为什么改 |
+
+### auth_sessions：登录（迁移 004）
+
+一台设备登录一次就是一行。只存 cookie 值的 sha256，不存原文。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | INTEGER PK | |
+| token_hash | TEXT NOT NULL UNIQUE | cookie 值的 sha256（十六进制） |
+| password_fingerprint | TEXT NOT NULL | `sha256("yuwen-session:" + 密码)`，换密码后对不上就失效 |
+| created_at | TEXT NOT NULL | |
+| expires_at | TEXT NOT NULL | 创建时间 + `auth.session_days` |
+| last_seen_at | TEXT NOT NULL | 最多一小时更新一次 |
+
+这张表的行可以真删：登出、过期、换密码后对不上，都直接删。它不是记忆。
+
+`GET /export` 不导出这张表。
 
 ### handoffs：续写（交接）
 

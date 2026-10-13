@@ -96,9 +96,36 @@
 - [x] interfaces.md、architecture.md、schema.md 正文里的中文叫法跟着换（标题已换），英文标识符不动
 - [x] 测试里断言中文文字的地方跟着改；测试全部通过
 
-#### M2.2 · 之后
+#### M2.2 · 登录与目录（接着做）
 
-- [ ] 封页：“这个忘掉吧”
+见 [design.md](design.md)「目录」「登录：只有你能打开这本书」，接口见 [interfaces.md](interfaces.md)「HTTP 接口（登录与目录）」，表见 [schema.md](schema.md) 的 `auth_sessions`、`memory_history`。先做登录，再做目录：目录能改记忆，不能先于门锁上线。
+
+**登录**
+
+- [ ] 配置：`auth.password`、`auth.session_days`、`auth.secure_cookie`；`config.example.toml` 里 `password` 写占位文字
+- [ ] 启动检查：密码为空、是占位文字、不到 8 位就不启动，报错说清楚去哪设
+- [ ] 迁移 004：`auth_sessions`
+- [ ] `auth.py`：密码比对（sha256 + `hmac.compare_digest`）、建会话、验会话（过期、指纹对不上就删）、`last_seen_at` 一小时最多写一次、按 IP 的输错限制
+- [ ] 默认全锁的中间件：只放行 `GET /login`、`POST /login`、`GET /health`；页面跳 `/login`，接口回 401
+- [ ] `POST`、`PATCH` 不是 JSON 的回 415
+- [ ] `GET /login` 登录页、`POST /login`、`POST /logout`
+- [ ] 网页：接口回 401 时跳到 `/login`；角落加“登出”
+- [ ] `GET /export` 不导出 `auth_sessions`
+- [ ] README「运行参考实现」加一步：在 `config.toml` 的 `[auth]` 里设密码；放在 https 后面的打开 `secure_cookie`
+- [ ] 测试覆盖：没设密码不启动；对的密码能进、错的 401；第 6 次错 429 带 `Retry-After`；过期 cookie、伪造 cookie、换密码后的旧 cookie 都进不去；登出后进不去；**遍历 app 里所有路由，除了放行的三个，没登录一律进不去**（以后新加接口忘了也会被这条测出来）；非 JSON 的 POST 回 415；现有测试改成先登录再测
+
+**目录**
+
+- [ ] `catalog.py`：列、筛、搜、分页；还记得多少直接用 surfacing 里的同一个函数
+- [ ] `GET /memories`、`GET /memories/{id}`、`PATCH /memories/{id}`、`POST /memories/{id}/seal`
+- [ ] 改正和封页前先写 `memory_history`（不含 embedding）；改正后 `certainty = 1.0`、清空向量并后台重算
+- [ ] `catalog.html`：一条一行，最新在上；字的颜色跟着还记得多少变淡；顶上四个筛选和搜索；点开看原话、改、封页 / 撕开；改的时候提示“用名字称呼两个人”
+- [ ] 聊天页顶上加“目录”入口
+- [ ] 测试覆盖：四种筛选各自对；搜索命中 summary、quote、emotion_text；梦不进目录；`retention` 和翻阅算出来的一样；改正写历史、`certainty` 变 1.0、向量被清空；改成一样的不写历史；超长 422；封页后翻阅找不到、撕开后又能找到；封页和撕开都写历史；重复封页不报错；没有任何删除
+
+#### M2.3 · 之后
+
+- [ ] 封页：对话里说“这个忘掉吧”就封（目录里的手动封页在 M2.2）
 - [ ] 折角：工具 + 日历页面 + 折角回复
 - [ ] 夹页
 - [ ] 指痕
@@ -117,4 +144,4 @@
 - [ ] 情绪怎么标：参考实现先文字 + 数值都存，以后看哪个没用上再删
 - [ ] 来信多久看一次：给别人的默认值，以及要不要让玩家自己调
 - [ ] 本仓库自己用什么协议发布
-- [ ] 放到服务器上给别人用之前，要先加登录：现在任何能打开网页的人都能看全部对话、导出记忆
+- [x] 放到服务器上给别人用之前，要先加登录：排进了 M2.2
