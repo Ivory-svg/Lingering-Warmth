@@ -7,13 +7,17 @@ from contextlib import asynccontextmanager
 from contextlib import suppress
 from importlib.resources import files
 import os
+from typing import Literal
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi import Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict
 
 from yuwen.chat import ChatModel, ChatService
-from yuwen.config import AppConfig, load_config
+from yuwen.auth import AuthService, COOKIE_NAME
+from yuwen.catalog import CatalogService
+from yuwen.config import AppConfig, load_config, validate_auth_password
 from yuwen.context import ContextBuilder
 from yuwen.embedder import EmbeddingModel, MemoryEmbedder
 from yuwen.export import build_export, build_markdown_export
@@ -86,6 +90,25 @@ class OverturnResponse(BaseModel):
     restored: bool
 
 
+class LoginRequest(BaseModel):
+    password: str
+
+
+class MemoryPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str | None = None
+    quote: str | None = None
+    emotion_text: str | None = None
+    reason: str | None = None
+
+
+class MemorySeal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sealed: bool
+
+
 def create_app(
     config: AppConfig,
     *,
@@ -155,9 +178,12 @@ def create_app(
         gatekeeper=gatekeeper_service if config.gatekeeper.pre_send else None,
         surfacing=surfacing_service,
     )
+    auth_service = AuthService(database, config.auth)
+    catalog_service = CatalogService(database, surfacing_service)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        validate_auth_password(config.auth)
         database.initialize()
         books.core()
         books.warn_oversized_entries(config.worldbook.entry_budget)
@@ -183,10 +209,118 @@ def create_app(
     app.state.handoff_service = handoff_service
     app.state.gatekeeper_service = gatekeeper_service
     app.state.surfacing_service = surfacing_service
+    app.state.auth_service = auth_service
+    app.state.catalog_service = catalog_service
+
+    @app.middleware("http")
+    async def require_login(request: Request, call_next):
+        allowed = {("GET", "/login"), ("POST", "/login"), ("GET", "/health")}
+        if (request.method, request.url.path) not in allowed:
+            if not auth_service.is_authenticated(request.cookies.get(COOKIE_NAME)):
+                if request.method == "GET" and request.url.path in {"/", "/catalog"}:
+                    return RedirectResponse("/login", status_code=303)
+                return JSONResponse({"detail": "请先登录"}, status_code=401)
+        if request.method in {"POST", "PATCH"}:
+            media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            if media_type != "application/json":
+                return JSONResponse({"detail": "请使用 application/json"}, status_code=415)
+        return await call_next(request)
 
     @app.get("/", response_class=HTMLResponse)
     async def get_index() -> str:
         return files("yuwen.static").joinpath("index.html").read_text(encoding="utf-8")
+
+    @app.get("/catalog", response_class=HTMLResponse)
+    async def get_catalog_page() -> str:
+        return files("yuwen.static").joinpath("catalog.html").read_text(encoding="utf-8")
+
+    @app.get("/login", response_class=HTMLResponse)
+    async def get_login(request: Request) -> Response:
+        if auth_service.is_authenticated(request.cookies.get(COOKIE_NAME)):
+            return RedirectResponse("/", status_code=303)
+        return HTMLResponse(
+            files("yuwen.static").joinpath("login.html").read_text(encoding="utf-8")
+        )
+
+    @app.post("/login")
+    async def post_login(request: Request, body: LoginRequest) -> Response:
+        ip = request.client.host if request.client else "unknown"
+        retry = auth_service.retry_after(ip)
+        if retry:
+            return JSONResponse(
+                {"detail": "试错太多次了，过一会儿再来", "retry_after_seconds": retry},
+                status_code=429,
+                headers={"Retry-After": str(retry)},
+            )
+        if not auth_service.check_password(body.password):
+            retry = auth_service.record_failure(ip)
+            if retry:
+                return JSONResponse(
+                    {"detail": "试错太多次了，过一会儿再来", "retry_after_seconds": retry},
+                    status_code=429,
+                    headers={"Retry-After": str(retry)},
+                )
+            raise HTTPException(status_code=401, detail="密码不对")
+        auth_service.clear_failures(ip)
+        token = auth_service.create_session()
+        response = JSONResponse({"ok": True})
+        response.set_cookie(
+            COOKIE_NAME,
+            token,
+            httponly=True,
+            samesite="lax",
+            path="/",
+            max_age=config.auth.session_days * 86_400,
+            secure=config.auth.secure_cookie,
+        )
+        return response
+
+    @app.post("/logout")
+    async def post_logout(request: Request) -> Response:
+        auth_service.logout(request.cookies.get(COOKIE_NAME))
+        response = JSONResponse({"ok": True})
+        response.delete_cookie(COOKIE_NAME, path="/")
+        return response
+
+    @app.get("/memories")
+    async def get_memories(
+        filter: Literal["all", "unclear", "fading", "sealed"] = "all",
+        q: str = "",
+        offset: int = Query(0, ge=0),
+        limit: int = Query(50, ge=1, le=200),
+    ) -> dict[str, object]:
+        return catalog_service.list(filter=filter, q=q, offset=offset, limit=limit)
+
+    @app.get("/memories/{memory_id}")
+    async def get_memory(memory_id: int) -> dict[str, object]:
+        try:
+            return catalog_service.detail(memory_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="找不到这条记忆") from exc
+
+    @app.patch("/memories/{memory_id}")
+    async def patch_memory(
+        memory_id: int, request: MemoryPatch, background_tasks: BackgroundTasks
+    ) -> dict[str, object]:
+        try:
+            result, changed = catalog_service.correct(
+                memory_id, summary=request.summary, quote=request.quote,
+                emotion_text=request.emotion_text, reason=request.reason,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="找不到这条记忆") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if changed and embedder is not None:
+            background_tasks.add_task(embedder.embed_memory, memory_id)
+        return result
+
+    @app.post("/memories/{memory_id}/seal")
+    async def post_memory_seal(memory_id: int, request: MemorySeal) -> dict[str, object]:
+        try:
+            return catalog_service.seal(memory_id, request.sealed)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="找不到这条记忆") from exc
 
     @app.post("/chat", response_model=ChatResponse)
     async def post_chat(

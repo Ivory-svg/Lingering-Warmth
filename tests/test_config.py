@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from yuwen.config import ConfigError, load_config
+from yuwen.config import AuthConfig, ConfigError, load_config, validate_auth_password
 
 
 def write_config(path: Path, extra: str = "") -> None:
@@ -60,6 +60,12 @@ def test_load_config_rejects_missing_required_value(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError, match="base_url"):
         load_config(config_file)
+
+
+@pytest.mark.parametrize("password", ["", "short", "请设置至少 8 位密码", " 请设置至少 8 位密码 "])
+def test_auth_password_must_be_set_before_startup(password: str) -> None:
+    with pytest.raises(ConfigError, match="config.toml 的 \\[auth\\].*password"):
+        validate_auth_password(AuthConfig(password))
 
 
 def test_load_config_rejects_invalid_trigger_ratio(tmp_path: Path) -> None:

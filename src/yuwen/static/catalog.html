@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>目录 · 余温</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color: #352f2b; background: #f5f1eb; }
+    body { max-width: 760px; margin: auto; padding: 1rem; }
+    header, nav, .controls, .actions { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; }
+    header { justify-content: space-between; }
+    a { color: #765f4d; }
+    button, input, textarea, select { font: inherit; padding: .5rem; border: 1px solid #cbbdb0; border-radius: .5rem; }
+    button { cursor: pointer; background: #fffdfa; color: #554638; }
+    .controls { margin: 1rem 0; }
+    #search { flex: 1; min-width: 12rem; }
+    #list { list-style: none; padding: 0; }
+    #list li { margin: .4rem 0; border-bottom: 1px solid #ded3c8; }
+    #list button { width: 100%; text-align: left; border: 0; background: none; padding: .8rem .3rem; }
+    #detail { background: #fffdfa; padding: 1rem; border-radius: .8rem; margin-top: 1rem; }
+    #detail[hidden] { display: none; }
+    #edit-form { display: grid; gap: .7rem; }
+    #edit-form label { display: grid; gap: .2rem; }
+    #edit-form textarea { min-height: 4rem; }
+    #sources { white-space: pre-wrap; }
+    #notice { color: #9c312a; min-height: 1.5rem; }
+  </style>
+</head>
+<body>
+  <header><h1>目录</h1><nav><a href="/">回聊天</a><button id="logout" type="button">登出</button></nav></header>
+  <div class="controls">
+    <label for="filter">筛选</label>
+    <select id="filter">
+      <option value="all">全部</option><option value="unclear">记不太清的</option>
+      <option value="fading">快褪掉的</option><option value="sealed">封页的</option>
+    </select>
+    <input id="search" type="search" placeholder="搜一个词" aria-label="搜索目录">
+    <button id="search-button" type="button">搜索</button>
+  </div>
+  <p id="notice" role="status"></p>
+  <ul id="list"></ul>
+  <button id="more" type="button" hidden>再看一些</button>
+  <section id="detail" hidden>
+    <h2>这一页</h2>
+    <p id="sources"></p>
+    <form id="edit-form">
+      <p>改记忆时，用名字称呼两个人，不要写“他”“她”。</p>
+      <label>发生了什么<textarea id="summary" maxlength="300" required></textarea></label>
+      <label>原话<input id="quote" maxlength="200"></label>
+      <label>当时的心情<input id="emotion" maxlength="100" required></label>
+      <label>为什么改<input id="reason"></label>
+      <div class="actions"><button type="submit">保存改正</button><button id="seal" type="button"></button></div>
+    </form>
+  </section>
+  <script>
+    const list = document.getElementById('list');
+    const detail = document.getElementById('detail');
+    const notice = document.getElementById('notice');
+    const filter = document.getElementById('filter');
+    const search = document.getElementById('search');
+    const more = document.getElementById('more');
+    let currentId = null;
+    let currentSealed = false;
+    let offset = 0;
+    async function apiFetch(url, options) {
+      const response = await fetch(url, options);
+      if (response.status === 401) { location.assign('/login'); throw new Error('请先登录'); }
+      return response;
+    }
+    async function jsonResponse(url, options) {
+      const response = await apiFetch(url, options);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || '请求失败');
+      return data;
+    }
+    function showError(error) { notice.textContent = error.message; }
+    async function loadList(append = false) {
+      if (!append) { offset = 0; list.replaceChildren(); detail.hidden = true; }
+      try {
+        notice.textContent = '';
+        const params = new URLSearchParams({filter: filter.value, q: search.value, offset, limit: 50});
+        const data = await jsonResponse(`/memories?${params}`);
+        for (const item of data.items) {
+          const li = document.createElement('li');
+          const button = document.createElement('button');
+          const date = new Date(item.happened_at).toLocaleDateString('zh-CN');
+          button.textContent = `${date} · ${item.kind === 'handoff' ? '续写' : '随笔'} · ${item.summary}${item.quote ? ` · 原话「${item.quote}」` : ''} · ${item.emotion_text} · ${item.clear ? '记得清楚' : '记不太清'} · 被想起 ${item.recall_count} 次`;
+          button.style.opacity = String(0.15 + 0.85 * item.retention);
+          button.addEventListener('click', () => openDetail(item.id));
+          li.append(button);
+          list.append(li);
+        }
+        offset += data.items.length;
+        more.hidden = offset >= data.total;
+      } catch (error) { showError(error); }
+    }
+    async function openDetail(id) {
+      try {
+        const data = await jsonResponse(`/memories/${id}`);
+        currentId = id;
+        currentSealed = data.sealed;
+        document.getElementById('summary').value = data.summary;
+        document.getElementById('quote').value = data.quote || '';
+        document.getElementById('emotion').value = data.emotion_text;
+        document.getElementById('reason').value = '';
+        document.getElementById('seal').textContent = data.sealed ? '撕开' : '封页';
+        document.getElementById('sources').textContent = data.sources.length
+          ? data.sources.map(source => `${source.role === 'user' ? '你' : '他'}：${source.content}`).join('\n')
+          : '没有关联的原话';
+        detail.hidden = false;
+        detail.scrollIntoView({behavior: 'smooth'});
+      } catch (error) { showError(error); }
+    }
+    document.getElementById('search-button').addEventListener('click', () => loadList());
+    search.addEventListener('keydown', event => { if (event.key === 'Enter') loadList(); });
+    filter.addEventListener('change', () => loadList());
+    more.addEventListener('click', () => loadList(true));
+    document.getElementById('edit-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      try {
+        await jsonResponse(`/memories/${currentId}`, {
+          method: 'PATCH', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({summary: document.getElementById('summary').value,
+            quote: document.getElementById('quote').value,
+            emotion_text: document.getElementById('emotion').value,
+            reason: document.getElementById('reason').value})
+        });
+        await loadList();
+        await openDetail(currentId);
+        notice.textContent = '改正已保存';
+      } catch (error) { showError(error); }
+    });
+    document.getElementById('seal').addEventListener('click', async () => {
+      try {
+        await jsonResponse(`/memories/${currentId}/seal`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({sealed: !currentSealed})
+        });
+        await loadList();
+        notice.textContent = currentSealed ? '已撕开' : '已封页';
+      } catch (error) { showError(error); }
+    });
+    document.getElementById('logout').addEventListener('click', async () => {
+      await apiFetch('/logout', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+      location.assign('/login');
+    });
+    loadList();
+  </script>
+</body>
+</html>

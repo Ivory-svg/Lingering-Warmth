@@ -3,7 +3,7 @@ from dataclasses import replace
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from authed_client import TestClient
 import pytest
 
 from test_chat_api import make_parts

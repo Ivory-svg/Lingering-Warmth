@@ -3,7 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 import time
 
-from fastapi.testclient import TestClient
+from authed_client import TestClient
 import numpy as np
 
 from test_chat_api import make_parts
