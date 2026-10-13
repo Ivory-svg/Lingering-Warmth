@@ -96,7 +96,7 @@
 - [x] interfaces.md、architecture.md、schema.md 正文里的中文叫法跟着换（标题已换），英文标识符不动
 - [x] 测试里断言中文文字的地方跟着改；测试全部通过
 
-#### M2.2 · 登录与目录（接着做）
+#### M2.2 · 登录与目录
 
 见 [design.md](design.md)「目录」「登录：只有你能打开这本书」，接口见 [interfaces.md](interfaces.md)「HTTP 接口（登录与目录）」，表见 [schema.md](schema.md) 的 `auth_sessions`、`memory_history`。先做登录，再做目录：目录能改记忆，不能先于门锁上线。
 

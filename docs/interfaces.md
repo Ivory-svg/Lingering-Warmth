@@ -122,7 +122,7 @@
 ```json
 {
   "exported_at": "...",
-  "schema_version": "3",
+  "schema_version": "4",
   "tables": { "sessions": [...], "messages": [...], "memories": [...], "...": [...] }
 }
 ```
@@ -131,7 +131,7 @@
 
 ### `GET /health`
 
-返回 `{"ok": true, "schema_version": "3"}`。
+返回 `{"ok": true, "schema_version": "4"}`。
 
 ---
 
@@ -162,7 +162,7 @@
 
 - 对：`{"ok": true}`，并种下 cookie
 - 错：401 `{"detail": "密码不对"}`
-- 错太多次：429 `{"detail": "试错太多次了，过一会儿再来", "retry_after_seconds": 600}`，带 `Retry-After` 头
+- 错太多次：429 `{"detail": "试错太多次了，过一会儿再来", "retry_after_seconds": 900}`，带 `Retry-After` 头。秒数是离解锁还剩多久，刚锁上时是 900
 
 比对密码：两边都先算 sha256，再用 `hmac.compare_digest` 比，不用 `==`。
 
