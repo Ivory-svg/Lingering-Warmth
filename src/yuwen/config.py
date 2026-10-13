@@ -89,6 +89,24 @@ class ServerConfig:
     port: int = 8787
 
 
+AUTH_PASSWORD_PLACEHOLDER = "请设置至少 8 位密码"
+
+
+@dataclass(frozen=True, slots=True)
+class AuthConfig:
+    password: str = ""
+    session_days: int = 30
+    secure_cookie: bool = False
+
+
+def validate_auth_password(auth: AuthConfig) -> None:
+    password = auth.password.strip()
+    if not password or password == AUTH_PASSWORD_PLACEHOLDER or len(password) < 8:
+        raise ConfigError(
+            "请在 config.toml 的 [auth] 里设置 password（至少 8 位），设好再启动。"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class AppConfig:
     llm: LLMConfig
@@ -103,6 +121,7 @@ class AppConfig:
     embedding: EmbeddingConfig = EmbeddingConfig()
     surfacing: SurfacingConfig = SurfacingConfig()
     decay: DecayConfig = DecayConfig()
+    auth: AuthConfig = AuthConfig()
 
 
 def _section(data: dict[str, Any], name: str) -> dict[str, Any]:
@@ -233,6 +252,15 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
     if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65_535:
         raise ConfigError("[server] port 必须是 1 到 65535 的整数")
 
+    auth_data = _section(data, "auth")
+    password = auth_data.get("password", "")
+    if not isinstance(password, str):
+        raise ConfigError("[auth] password 必须是字符串")
+    session_days = _integer_option(auth_data, "session_days", "auth", 30, 1)
+    secure_cookie = auth_data.get("secure_cookie", False)
+    if not isinstance(secure_cookie, bool):
+        raise ConfigError("[auth] secure_cookie 必须是布尔值")
+
     base = config_path.parent
     character_data = _section(data, "character")
     name = character_data.get("name", "他")
@@ -285,4 +313,5 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
             surfacing_clear_threshold,
         ),
         decay=DecayConfig(float(base_days)),
+        auth=AuthConfig(password, session_days, secure_cookie),
     )

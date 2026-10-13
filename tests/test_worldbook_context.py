@@ -2,7 +2,7 @@ import os
 from dataclasses import replace
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from authed_client import TestClient
 import pytest
 
 from test_chat_api import FakeLLM, make_parts

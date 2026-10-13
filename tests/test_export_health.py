@@ -2,7 +2,7 @@ import base64
 from dataclasses import replace
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from authed_client import TestClient
 
 from test_chat_api import FakeLLM, make_parts
 from yuwen.api import create_app
@@ -49,7 +49,7 @@ def test_build_export_contains_every_table_and_base64_embedding(tmp_path: Path) 
 
     exported = build_export(store)
 
-    assert exported["schema_version"] == "3"
+    assert exported["schema_version"] == "4"
     assert set(exported["tables"]) == set(TABLES)
     assert exported["tables"]["memories"][0]["embedding"] == base64.b64encode(
         b"\x00\x01\x02"
@@ -67,10 +67,11 @@ def test_export_and_health_endpoints(tmp_path: Path) -> None:
         exported = client.get("/export")
         markdown = client.get("/export?format=markdown")
 
-    assert health.json() == {"ok": True, "schema_version": "3"}
+    assert health.json() == {"ok": True, "schema_version": "4"}
     assert exported.status_code == 200
     assert "attachment" in exported.headers["content-disposition"]
     assert set(exported.json()["tables"]) == set(TABLES)
+    assert "auth_sessions" not in exported.json()["tables"]
     assert "—— 续写 · 新的一卷 ——" in markdown.text
 
 

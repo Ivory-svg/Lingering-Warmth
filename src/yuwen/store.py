@@ -77,7 +77,14 @@ class Store:
                     .joinpath("migrations", "003_memory_recall.sql")
                     .read_text(encoding="utf-8")
                 )
-            elif version != "3":
+                version = "3"
+            if version == "3":
+                connection.executescript(
+                    files("yuwen")
+                    .joinpath("migrations", "004_auth_sessions.sql")
+                    .read_text(encoding="utf-8")
+                )
+            elif version != "4":
                 raise RuntimeError(f"不支持的数据库版本：{version}")
 
     def schema_version(self) -> str:
@@ -88,6 +95,35 @@ class Store:
         if row is None:
             raise RuntimeError("数据库尚未初始化")
         return str(row["value"])
+
+    def create_auth_session(
+        self, token_hash: str, password_fingerprint: str, created_at: str, expires_at: str
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO auth_sessions
+                (token_hash, password_fingerprint, created_at, expires_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?)""",
+                (token_hash, password_fingerprint, created_at, expires_at, created_at),
+            )
+
+    def get_auth_session(self, token_hash: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM auth_sessions WHERE token_hash = ?", (token_hash,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def touch_auth_session(self, token_hash: str, seen_at: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ?",
+                (seen_at, token_hash),
+            )
+
+    def delete_auth_session(self, token_hash: str) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM auth_sessions WHERE token_hash = ?", (token_hash,))
 
     def create_session(
         self,
@@ -255,6 +291,68 @@ class Store:
                 "SELECT * FROM memories WHERE id = ?", (memory_id,)
             ).fetchone()
         return dict(row) if row else None
+
+    def list_catalog_memories(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT * FROM memories WHERE kind IN ('turn', 'handoff')
+                ORDER BY happened_at DESC, id DESC"""
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def memory_ids_with_history(self) -> set[int]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT DISTINCT memory_id FROM memory_history").fetchall()
+        return {int(row["memory_id"]) for row in rows}
+
+    def list_memory_history(self, memory_id: int) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM memory_history WHERE memory_id = ? ORDER BY id DESC",
+                (memory_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def correct_memory(self, memory_id: int, changes: dict[str, str | None], reason: str) -> bool:
+        """原子地写快照和改正；无变化时不写历史。"""
+
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+            if row is None or row["kind"] not in {"turn", "handoff"}:
+                raise KeyError(memory_id)
+            changed = {key: value for key, value in changes.items() if row[key] != value}
+            if not changed:
+                return False
+            snapshot = dict(row)
+            snapshot.pop("embedding", None)
+            connection.execute(
+                "INSERT INTO memory_history (memory_id, snapshot, changed_at, reason) VALUES (?, ?, ?, ?)",
+                (memory_id, _json(snapshot), now_iso(), reason),
+            )
+            assignments = ", ".join(f"{key} = ?" for key in changed)
+            connection.execute(
+                f"UPDATE memories SET {assignments}, certainty = 1.0, embedding = NULL, embedding_model = NULL WHERE id = ?",  # noqa: S608
+                (*changed.values(), memory_id),
+            )
+            return True
+
+    def set_memory_sealed(self, memory_id: int, sealed: bool) -> bool:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+            if row is None or row["kind"] not in {"turn", "handoff"}:
+                raise KeyError(memory_id)
+            if bool(row["sealed"]) == sealed:
+                return False
+            snapshot = dict(row)
+            snapshot.pop("embedding", None)
+            connection.execute(
+                "INSERT INTO memory_history (memory_id, snapshot, changed_at, reason) VALUES (?, ?, ?, ?)",
+                (memory_id, _json(snapshot), now_iso(), "封页" if sealed else "撕开"),
+            )
+            connection.execute(
+                "UPDATE memories SET sealed = ? WHERE id = ?", (int(sealed), memory_id)
+            )
+            return True
 
     def update_memory_embedding(self, memory_id: int, embedding: bytes, model: str) -> bool:
         with self._connect() as connection:

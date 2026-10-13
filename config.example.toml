@@ -53,3 +53,9 @@ db_path = "data/yuwen.db"
 [server]
 host = "127.0.0.1"
 port = 8787
+
+[auth]
+password = "请设置至少 8 位密码"
+session_days = 30
+# 放在 HTTPS 后面时设成 true。
+secure_cookie = false

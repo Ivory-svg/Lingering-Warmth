@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from dataclasses import replace
-from fastapi.testclient import TestClient
+from authed_client import TestClient
 import numpy as np
 
 from test_chat_api import FakeLLM, make_parts

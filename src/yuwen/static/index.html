@@ -11,7 +11,7 @@
     header { padding: 18px 22px; border-bottom: 1px solid #e8ded3; display: flex; align-items: center; justify-content: space-between; }
     h1 { font-size: 20px; margin: 0; font-weight: 600; }
     header a { color: #765f4d; font-size: 13px; }
-    .export-links { display: flex; gap: 10px; }
+    .export-links { display: flex; gap: 10px; flex-wrap: wrap; }
     #messages { overflow-y: auto; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
     .empty { margin: auto; color: #8d8178; text-align: center; }
     .message { max-width: 78%; padding: 11px 14px; border-radius: 16px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -40,7 +40,7 @@
 </head>
 <body>
   <main>
-    <header><h1>余温</h1><nav class="export-links" aria-label="导出全书"><a href="/export?format=markdown">导出全书（Markdown）</a><a href="/export?format=json">备份全书（JSON）</a></nav></header>
+    <header><h1>余温</h1><nav class="export-links" aria-label="书的操作"><a href="/catalog">目录</a><a href="/export?format=markdown">导出全书（Markdown）</a><a href="/export?format=json">备份全书（JSON）</a><button id="logout" type="button">登出</button></nav></header>
     <section id="messages" aria-live="polite"><p class="empty">人走了，温度还在。</p></section>
     <div id="message-menu" class="message-menu" role="menu" hidden><button id="flag-ooc" type="button" role="menuitem">他不会这么说</button></div>
     <div><div id="error" role="alert"></div><form id="chat-form"><textarea id="content" rows="1" placeholder="说点什么……" required></textarea><button id="send" type="submit">发送</button></form></div>
@@ -54,6 +54,19 @@
     const menu = document.querySelector('#message-menu');
     const flagOption = document.querySelector('#flag-ooc');
     let selectedMessage = null;
+
+    async function apiFetch(url, options) {
+      const response = await fetch(url, options);
+      if (response.status === 401) location.assign('/login');
+      return response;
+    }
+
+    document.getElementById('logout').addEventListener('click', async () => {
+      const response = await apiFetch('/logout', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+      });
+      if (response.ok) location.assign('/login');
+    });
 
     function hideMenu() {
       menu.hidden = true;
@@ -107,7 +120,7 @@
       overturn.addEventListener('click', async () => {
         overturn.disabled = true;
         try {
-          const response = await fetch(`/voice-notes/${ooc.voice_note_id}/overturn`, {
+          const response = await apiFetch(`/voice-notes/${ooc.voice_note_id}/overturn`, {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({note: noteInput.value.trim() || null})
           });
@@ -132,7 +145,7 @@
       hideMenu();
       flagOption.disabled = true;
       try {
-        const response = await fetch('/ooc/flag', {
+        const response = await apiFetch('/ooc/flag', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({message_id: messageId, player_rewrite: null})
         });
@@ -213,7 +226,7 @@
     async function restoreMessages() {
       send.disabled = true;
       try {
-        const response = await fetch('/messages');
+        const response = await apiFetch('/messages');
         if (!response.ok) throw new Error('加载历史消息失败');
         for (const message of await response.json()) {
           addMessage(message.role, message.content, message.message_id, message.ooc);
@@ -236,7 +249,7 @@
       input.value = '';
       send.disabled = true;
       try {
-        const response = await fetch('/chat', {
+        const response = await apiFetch('/chat', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({content})
         });

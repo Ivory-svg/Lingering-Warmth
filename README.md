@@ -80,7 +80,7 @@ cp config.example.toml config.toml
 cp -r examples/worldbook worldbook
 ```
 
-编辑 `config.toml` 中的 `base_url`、`api_key` 和模型名，然后启动：
+编辑 `config.toml` 中的 `base_url`、`api_key` 和模型名，并在 `[auth]` 里把 `password` 改成自己的密码（至少 8 位），然后启动。放在 HTTPS 后面时，把 `auth.secure_cookie` 设为 `true`：
 
 ```bash
 uv run yuwen

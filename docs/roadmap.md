@@ -102,26 +102,26 @@
 
 **登录**
 
-- [ ] 配置：`auth.password`、`auth.session_days`、`auth.secure_cookie`；`config.example.toml` 里 `password` 写占位文字
-- [ ] 启动检查：密码为空、是占位文字、不到 8 位就不启动，报错说清楚去哪设
-- [ ] 迁移 004：`auth_sessions`
-- [ ] `auth.py`：密码比对（sha256 + `hmac.compare_digest`）、建会话、验会话（过期、指纹对不上就删）、`last_seen_at` 一小时最多写一次、按 IP 的输错限制
-- [ ] 默认全锁的中间件：只放行 `GET /login`、`POST /login`、`GET /health`；页面跳 `/login`，接口回 401
-- [ ] `POST`、`PATCH` 不是 JSON 的回 415
-- [ ] `GET /login` 登录页、`POST /login`、`POST /logout`
-- [ ] 网页：接口回 401 时跳到 `/login`；角落加“登出”
-- [ ] `GET /export` 不导出 `auth_sessions`
-- [ ] README「运行参考实现」加一步：在 `config.toml` 的 `[auth]` 里设密码；放在 https 后面的打开 `secure_cookie`
-- [ ] 测试覆盖：没设密码不启动；对的密码能进、错的 401；第 6 次错 429 带 `Retry-After`；过期 cookie、伪造 cookie、换密码后的旧 cookie 都进不去；登出后进不去；**遍历 app 里所有路由，除了放行的三个，没登录一律进不去**（以后新加接口忘了也会被这条测出来）；非 JSON 的 POST 回 415；现有测试改成先登录再测
+- [x] 配置：`auth.password`、`auth.session_days`、`auth.secure_cookie`；`config.example.toml` 里 `password` 写占位文字
+- [x] 启动检查：密码为空、是占位文字、不到 8 位就不启动，报错说清楚去哪设
+- [x] 迁移 004：`auth_sessions`
+- [x] `auth.py`：密码比对（sha256 + `hmac.compare_digest`）、建会话、验会话（过期、指纹对不上就删）、`last_seen_at` 一小时最多写一次、按 IP 的输错限制
+- [x] 默认全锁的中间件：只放行 `GET /login`、`POST /login`、`GET /health`；页面跳 `/login`，接口回 401
+- [x] `POST`、`PATCH` 不是 JSON 的回 415
+- [x] `GET /login` 登录页、`POST /login`、`POST /logout`
+- [x] 网页：接口回 401 时跳到 `/login`；角落加“登出”
+- [x] `GET /export` 不导出 `auth_sessions`
+- [x] README「运行参考实现」加一步：在 `config.toml` 的 `[auth]` 里设密码；放在 https 后面的打开 `secure_cookie`
+- [x] 测试覆盖：没设密码不启动；对的密码能进、错的 401；第 6 次错 429 带 `Retry-After`；过期 cookie、伪造 cookie、换密码后的旧 cookie 都进不去；登出后进不去；**遍历 app 里所有路由，除了放行的三个，没登录一律进不去**（以后新加接口忘了也会被这条测出来）；非 JSON 的 POST 回 415；现有测试改成先登录再测
 
 **目录**
 
-- [ ] `catalog.py`：列、筛、搜、分页；还记得多少直接用 surfacing 里的同一个函数
-- [ ] `GET /memories`、`GET /memories/{id}`、`PATCH /memories/{id}`、`POST /memories/{id}/seal`
-- [ ] 改正和封页前先写 `memory_history`（不含 embedding）；改正后 `certainty = 1.0`、清空向量并后台重算
-- [ ] `catalog.html`：一条一行，最新在上；字的颜色跟着还记得多少变淡；顶上四个筛选和搜索；点开看原话、改、封页 / 撕开；改的时候提示“用名字称呼两个人”
-- [ ] 聊天页顶上加“目录”入口
-- [ ] 测试覆盖：四种筛选各自对；搜索命中 summary、quote、emotion_text；梦不进目录；`retention` 和翻阅算出来的一样；改正写历史、`certainty` 变 1.0、向量被清空；改成一样的不写历史；超长 422；封页后翻阅找不到、撕开后又能找到；封页和撕开都写历史；重复封页不报错；没有任何删除
+- [x] `catalog.py`：列、筛、搜、分页；还记得多少直接用 surfacing 里的同一个函数
+- [x] `GET /memories`、`GET /memories/{id}`、`PATCH /memories/{id}`、`POST /memories/{id}/seal`
+- [x] 改正和封页前先写 `memory_history`（不含 embedding）；改正后 `certainty = 1.0`、清空向量并后台重算
+- [x] `catalog.html`：一条一行，最新在上；字的颜色跟着还记得多少变淡；顶上四个筛选和搜索；点开看原话、改、封页 / 撕开；改的时候提示“用名字称呼两个人”
+- [x] 聊天页顶上加“目录”入口
+- [x] 测试覆盖：四种筛选各自对；搜索命中 summary、quote、emotion_text；梦不进目录；`retention` 和翻阅算出来的一样；改正写历史、`certainty` 变 1.0、向量被清空；改成一样的不写历史；超长 422；封页后翻阅找不到、撕开后又能找到；封页和撕开都写历史；重复封页不报错；没有任何删除
 
 #### M2.3 · 之后
 

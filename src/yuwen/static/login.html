@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · 余温</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 24rem; margin: 12vh auto; padding: 1rem; color: #342d2d; background: #faf7f3; }
+    form { display: grid; gap: 1rem; }
+    input, button { font: inherit; padding: .7rem; border-radius: .5rem; border: 1px solid #a99; }
+    button { background: #6f504d; color: white; cursor: pointer; }
+    #error { color: #a12d2d; min-height: 1.5rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>打开余温</h1>
+    <form id="login-form">
+      <label for="password">密码</label>
+      <input id="password" type="password" autocomplete="current-password" required autofocus>
+      <button type="submit">登录</button>
+    </form>
+    <p id="error" role="alert"></p>
+  </main>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const error = document.getElementById('error');
+      error.textContent = '';
+      try {
+        const response = await fetch('/login', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({password: document.getElementById('password').value})
+        });
+        if (response.ok) { location.assign('/'); return; }
+        const data = await response.json();
+        error.textContent = data.detail || '登录失败';
+      } catch (_) { error.textContent = '连接失败，请稍后再试'; }
+    });
+  </script>
+</body>
+</html>

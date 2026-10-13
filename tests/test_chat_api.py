@@ -2,12 +2,13 @@ import asyncio
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from authed_client import TestClient
 
 from yuwen.api import create_app
 from yuwen.chat import ChatService
 from yuwen.config import (
     AppConfig,
+    AuthConfig,
     CharacterConfig,
     GatekeeperConfig,
     HandoffConfig,
@@ -47,6 +48,7 @@ def make_parts(tmp_path: Path) -> tuple[AppConfig, Store, WorldbookReader]:
         storage=StorageConfig(tmp_path / "data.db"),
         server=ServerConfig(),
         config_path=tmp_path / "config.toml",
+        auth=AuthConfig("test-password-123"),
     )
     store = Store(config.storage.db_path)
     store.initialize()
