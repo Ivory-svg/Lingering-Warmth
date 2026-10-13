@@ -46,7 +46,10 @@ lingering-warmth/
 │   ├── handoff.py             # 续写：写摘要、新窗口带入
 │   ├── gatekeeper.py          # OOC 校对与勘误
 │   ├── export.py              # 完整导出
+│   ├── auth.py                # 登录：密码比对、会话、输错限制、默认全锁的中间件
+│   ├── catalog.py             # 目录：列记忆、改正、封页（褪墨用 surfacing 的同一个函数）
 │   ├── api.py                 # HTTP 接口
+│   ├── static/                # index.html（聊天）、catalog.html（目录）、login.html（登录）
 │   └── prompts/               # 运行时用的 prompt 文本（从 docs/prompts 复制）
 │   # 第二档后续再加：diary.py keepsakes.py
 │   # 第三档以后再加：recast.py dream.py wake.py anniversaries.py
@@ -144,6 +147,9 @@ api → export → store
 | `gatekeeper.voice_notes_in_context` | 10 | 拼上下文时带几条勘误 |
 | `storage.db_path` | `data/yuwen.db` | |
 | `server.host` / `server.port` | 127.0.0.1 / 8787 | |
+| `auth.password` | — | 必填，至少 8 位。没设、还是占位文字或太短，就不启动 |
+| `auth.session_days` | 30 | 登录一次记住几天 |
+| `auth.secure_cookie` | false | 放在 https 后面时设成 true，cookie 只走 https |
 
 **embedding 怎么配**（二选一，想配就配）：
 
