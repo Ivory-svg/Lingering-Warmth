@@ -122,7 +122,7 @@
 ```json
 {
   "exported_at": "...",
-  "schema_version": "4",
+  "schema_version": "5",
   "tables": { "sessions": [...], "messages": [...], "memories": [...], "...": [...] }
 }
 ```
@@ -131,7 +131,7 @@
 
 ### `GET /health`
 
-返回 `{"ok": true, "schema_version": "4"}`。
+返回 `{"ok": true, "schema_version": "5"}`。（M2.3 起是 5）
 
 ---
 
@@ -197,7 +197,7 @@
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `filter` | `all` | `all` 没封页的全部 / `unclear` 记不太清的 / `fading` 快褪掉的 / `sealed` 封页的 |
+| `filter` | `all` | `all` 没封页的全部 / `unclear` 记不太清的 / `fading` 快褪掉的 / `sealed` 封页的 / `open` 待续（M2.3） |
 | `q` | 空 | 搜一个词：在 `summary`、`quote`、`emotion_text` 里找，按字面包含 |
 | `offset` | 0 | |
 | `limit` | 50 | 最多 200 |
@@ -206,6 +206,8 @@
 - 按 `happened_at` 从新到旧，同一时间按 id 从大到小
 - `unclear`：没封页，且 `certainty < surfacing.clear_threshold`
 - `fading`：没封页，且还记得多少 < 0.2
+- `open`：没封页，且 `status = 'open'`
+- M2.3 起，每条多返回 `status`、`status_as_of`、`resolved_at`、`resolved_note`
 
 响应：
 
@@ -289,6 +291,22 @@
 - 否则先存一条 `memory_history`，`reason` 写 `封页` 或 `撕开`，再改 `sealed`
 - 响应：`{"id": 41, "sealed": true}`
 
+#### `POST /memories/{id}/status`（M2.3）
+
+玩家改待续的状态。
+
+```json
+{ "status": "done", "note": "已经看完牙了" }
+```
+
+- `status`：`open` / `done` / `dropped` / `null`（这不是待办）。别的值 422；`note` 0–100 字，可不给
+- 和现在状态一样的，什么都不做，直接返回
+- 否则先存 `memory_history`，`reason` 写 `玩家标完结`、`玩家标不做了`、`玩家重新打开`、`玩家标成待续` 或 `玩家说不是待办`，有 `note` 就接在后面
+- `open`：`status_as_of` 设为现在，清空 `resolved_at`、`resolved_note`
+- `done` / `dropped`：`status_as_of` 和 `resolved_at` 设为现在，`resolved_note` 设为 `note`
+- `null`：四个字段都清空
+- 响应同 `GET /memories/{id}`
+
 **目录里没有删除。** 任何接口都不删 `memories` 的行。
 
 ---
@@ -363,6 +381,27 @@ priority: 5
 6. 上一卷最后 N 条原话（如果发生过续写）
 7. 本 session 的所有原话
 8. 第二档起：翻阅的记忆插在 5 和 6 之间
+9. M2.3 起：「还没完结的事」紧跟在翻阅的记忆后面，也在 6 之前
+
+**「还没完结的事」**（`todo.enabled = true` 时）：一条 system。
+
+候选是 `status = 'open'` 的记忆，同时满足：
+
+- `sealed = 0`
+- 来源原话不在当前上下文里（和翻阅的“在眼前”同一个判断）
+- `status_as_of` 在 `todo.stale_days` 天以内（默认 30）
+- `last_recalled_at` 为空，或早于 `todo.cooldown_hours` 小时之前（默认 12）
+
+按 `status_as_of` 从新到旧，取前 `todo.max_in_context` 条（默认 3）。一条也没有就不加这段。
+
+```
+这些是你们之间还没完结的事。不用每次都提；隔了一阵、话题合适的时候，可以自然问一句现在怎么样了。不要说成已经做完了，也不要假装知道结果。
+
+· 10月20日说的：阿栀说周五要去看牙
+```
+
+- 这里带进去的 id 也写进这条回复的 `meta.surfaced_memory_ids`，随笔照样判断他用上没有；用上了，`last_recalled_at` 更新，这件就歇 `todo.cooldown_hours`
+- 同一条已经在这段里的，翻阅结果里去掉，不递两遍
 
 匹配词条用的“最近几句”，包含玩家刚发的这一句。
 
@@ -397,6 +436,15 @@ priority: 5
 - 这批里没递过任何记忆时，prompt 里不加那一段，也不读这个字段
 
 **降级**：字段缺失、不是数组、JSON 整个解析失败、走了“原话前 100 字”的降级路径，都当作一条也没用上，不加次数。宁可少记一次，不让错的越记越牢。
+
+**待续（M2.3）**：`todo.enabled = true` 时，prompt 加两段，返回多两个字段，见 [prompts/inflow.md](prompts/inflow.md)。
+
+- 「还没完结的事」：给小模型看的待续。取 `status = 'open'`、没封页的，按 `status_as_of` 从新到旧，最多 `todo.max_open_in_prompt` 条（默认 10）；这批里递过的待续（`surfaced_memory_ids` 里有的）一定放进去。一条也没有就整段去掉，也不读 `resolved`
+- `todos`：新出现的待续，数组，每件 `{"summary": "...", "quote": "..."}`，最多取前 3 件。每件写一条新记忆：`kind = turn`、`status = open`、`status_as_of` 和 `happened_at` 都是这批最后一条消息的时间；`source_message_ids`、`emotion_text`、`valence`、`arousal`、`certainty` 和这批的随笔相同。`summary` 为空的跳过
+- `resolved`：数组，每件 `{"id": 12, "status": "done", "note": "阿栀说牙看完了"}`。只认「还没完结的事」里列过的 id；`status` 只认 `done`、`dropped`，别的忽略。改之前存 `memory_history`，`reason` 写 `完结：{note}` 或 `不做了：{note}`；然后设 `status`、`status_as_of` 和 `resolved_at`（都是这批最后一条消息的时间）、`resolved_note`
+- 新的待续要算向量，和普通随笔一样
+
+**待续的降级**：`todos`、`resolved` 缺失或格式不对，只忽略那一个字段，随笔照常写；JSON 整个解析失败、走原话降级路径时，不记待续、不完结任何事。
 
 ### handoff（续写，原名交接）
 
@@ -479,6 +527,8 @@ priority: 5
 
 `decay.base_days` 默认 7。被想起一次，稳定度翻倍；情绪越强，忘得越慢。
 
+M2.3 起：`status` 是 `done` 或 `dropped` 的，稳定度再乘 0.5。目录的 `retention` 用同一个函数，自然跟着变。
+
 **5. 排序与取舍**
 - 分数 = 相似度 × (0.6 + 0.4 × 保留)。淡掉的记忆分数最多打六折，不会彻底找不到
 - 相似度低于 `surfacing.min_similarity`（embedding 默认 0.45，字面匹配默认 0.2）的丢掉
@@ -501,6 +551,7 @@ priority: 5
 ```
 
 - `certainty ≥ surfacing.clear_threshold`（默认 0.7）标“记得清楚”，否则标“记不太清”
+- M2.3 起，带状态的在括号里多写一句：`open` 写“10月20日时还没完结”，`status_as_of` 超过 `todo.stale_days` 天的改写“这是很久以前的状态，现在可能变了”；`done` 写“已经做完了：{resolved_note}”；`dropped` 写“后来不做了：{resolved_note}”。`resolved_note` 为空就只写前半句
 - 日期用 `happened_at`，只写月日；不是今年的写年份
 - 摘要原样放，不做任何替换。写随笔摘要时就已经用名字称呼两个人（见 prompts/inflow.md），不会出现指代不清的“他”“她”
 - 旧记忆如果还有“他”“她”，也原样放，不要猜着替换：替错了比不替更糟
@@ -537,6 +588,7 @@ priority: 5
 - 对话里的说话人：玩家一律写“你”，角色写 `character.name`。这是给人读的，所以玩家就是“你”
 - 随笔、续写里的摘要原样放（里面用的是 `character.player_name`）
 - 被推翻（`restored`）的回复显示原句
+- M2.3 起，带状态的随笔在括号里加上状态：`待续`、`完结：{resolved_note}`、`不做了：{resolved_note}`
 - 不导出 embedding
 - 网页的“导出全书”给两个选项：给人看的（Markdown）、给程序搬家的（JSON）
 

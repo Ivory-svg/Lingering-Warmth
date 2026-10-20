@@ -85,7 +85,7 @@
 - [x] 旧数据：没有 `surfaced_memory_ids` 的回复照常流入，不报错
 - [x] 测试覆盖：递了没用不加次数；用了加次数且时间是那条回复的；交接那轮只记交接后那批；小模型返回没递过的 id 被忽略；`every_n_turns=3` 时三轮一起判断、同一条只加一次；解析失败不加次数；没递过记忆时 prompt 里没有那一段
 
-#### 换名（接着做）
+#### 换名
 
 见 [design.md](design.md)「名字对照」。只换人看得到的中文，英文的模块名、函数名、配置项、HTTP 路径、表名都不动。
 
@@ -123,13 +123,26 @@
 - [x] 聊天页顶上加“目录”入口
 - [x] 测试覆盖：四种筛选各自对；搜索命中 summary、quote、emotion_text；梦不进目录；`retention` 和翻阅算出来的一样；改正写历史、`certainty` 变 1.0、向量被清空；改成一样的不写历史；超长 422；封页后翻阅找不到、撕开后又能找到；封页和撕开都写历史；重复封页不报错；没有任何删除
 
-#### M2.3 · 之后
+#### M2.3 · 待续（接着做）
+
+见 [design.md](design.md)「待续」「待续怎么做」，接口见 [interfaces.md](interfaces.md) 的 inflow、context、surfacing 第 4 和第 7 步、`GET /memories`、`POST /memories/{id}/status`、export，表见 [schema.md](schema.md) 的 memories，prompt 见 [prompts/inflow.md](prompts/inflow.md)「待续」。
+
+- [ ] 迁移 005：`memories` 加 `status`、`status_as_of`、`resolved_at`、`resolved_note`，建 `memories(status)` 索引；`schema_version` 变 5
+- [ ] 配置：`todo.*`，`config.example.toml` 同步
+- [ ] inflow：prompt 加「还没完结的事」和 `todos`、`resolved`；`src/yuwen/prompts/inflow.md` 和文档同步
+- [ ] inflow：新待续每件写一条记忆并算向量；完结和不做了先写历史再改状态；只认列过的 id
+- [ ] context：「还没完结的事」那段，候选条件、条数、冷却、太久不带；带进去的 id 写进 `surfaced_memory_ids`；和翻阅结果去重
+- [ ] surfacing：递给他时带上状态；完结和不做了的稳定度乘 0.5
+- [ ] 目录：筛选“待续”；每条显示状态；点开能标完结、不做了、重新打开、标成待续、不是待办；`POST /memories/{id}/status`
+- [ ] Markdown 导出带上状态
+- [ ] 测试覆盖：小模型列出待续时每件一条记忆、状态和时间对；超过 3 件只取 3 件；`resolved` 里没列过的 id 被忽略、`status` 乱写的被忽略；完结写历史；`todos` 或 `resolved` 格式不对只丢那一个字段、随笔照常写；整个解析失败不记待续；「还没完结的事」不带原话在眼前的、刚用上不到 12 小时的、超过 30 天的；最多 3 条；带进去的被用上后 `last_recalled_at` 更新、下一轮不再带；同一条不在翻阅里重复；翻到完结的带“已经做完了”；完结后褪墨更快；`todo.enabled = false` 时 prompt 没有这两段、上下文没有这段；`POST /memories/{id}/status` 五种改法各自对、一样的不写历史、乱写 422、没登录进不去
+
+#### M2.3 之后
 
 - [ ] 封页：对话里说“这个忘掉吧”就封（目录里的手动封页在 M2.2）
 - [ ] 折角：工具 + 日历页面 + 折角回复
 - [ ] 夹页
 - [ ] 指痕
-- [ ] 待续：memories 加 status 等字段；写随笔时识别新的承诺 / 待办；对话里或玩家一句话就能完结；翻到时带上“这是哪天的状态”
 
 ### M3 · 第三档：他会想你
 

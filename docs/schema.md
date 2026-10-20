@@ -68,8 +68,14 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | embedding | BLOB | 第二档用，float32 小端数组 |
 | embedding_model | TEXT | 算向量用的模型名；换模型后据此重算（迁移 003 新增） |
 | recall_count | INTEGER NOT NULL DEFAULT 0 | 翻到且真的用上后想起的次数，褪墨计算用（迁移 003 新增） |
+| status | TEXT | 待续用。为空 = 普通记忆；`open` 待续 / `done` 完结 / `dropped` 不做了（迁移 005 新增） |
+| status_as_of | TEXT | 这个状态是哪天的。记下时 = 这批最后一条消息的时间；改状态时更新（迁移 005 新增） |
+| resolved_at | TEXT | 完结或不做了的时间；重新打开时清空（迁移 005 新增） |
+| resolved_note | TEXT | 为什么完结，例如“阿栀说牙看完了”；重新打开时清空（迁移 005 新增） |
 
 情绪先文字 + 数值两样都存，数值可空。以后哪一样没用上再删。
+
+迁移 005 同时建索引 `memories(status)`。待续不新开 `kind`，仍是 `turn`；靠 `status` 不为空区分。
 
 `weight` 保留不删，但第二档的褪墨不读它：“还记得多少”在翻阅时现算，见 interfaces.md 的 surfacing。
 
@@ -136,15 +142,6 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 ---
 
 ## 第二档以后（先不建，写在这里方便提前对齐）
-
-**memories 加字段（第二档的迁移）**：答应过的事、待办、“还在路上”这类会过期的状态，见 design.md「待续」。
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| status | TEXT | 为空 = 普通记忆；`open` 进行中 / `done` 做完了 / `dropped` 不做了 |
-| status_as_of | TEXT | 这个状态是哪天的 |
-| resolved_at | TEXT | 结案时间 |
-| resolved_note | TEXT | 为什么结案，例如“玩家说已经到货了” |
 
 | 表 | 用途 | 关键字段 |
 |---|---|---|

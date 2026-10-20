@@ -143,6 +143,11 @@ api → export → store
 | `surfacing.min_similarity` | 0.45 | 按意思找时的门槛；字面匹配固定用 0.2 |
 | `surfacing.clear_threshold` | 0.7 | 确定度到多少算“记得清楚” |
 | `decay.base_days` | 7 | 褪墨的基础天数；越大淡得越慢 |
+| `todo.enabled` | true | 待续：写随笔时记下、完结答应过的事，每轮带上还没完结的。不多调模型 |
+| `todo.max_in_context` | 3 | 每轮最多带几件还没完结的事 |
+| `todo.cooldown_hours` | 12 | 他问过一件以后，歇几个小时再带 |
+| `todo.stale_days` | 30 | 超过几天的待续不再每轮带，翻到时说“这是很久以前的状态” |
+| `todo.max_open_in_prompt` | 10 | 写随笔时给小模型看几件还没完结的事 |
 | `gatekeeper.pre_send` | true | 发出前是否自查 |
 | `gatekeeper.voice_notes_in_context` | 10 | 拼上下文时带几条勘误 |
 | `storage.db_path` | `data/yuwen.db` | |

@@ -1,6 +1,6 @@
 # 给实作者的说明
 
-第一档（M1、M1.1、M1.2）、M2.1、M2.1.1、「换名」和 M2.2「登录与目录」已经完成。下一项还没排，等 [docs/roadmap.md](docs/roadmap.md) 里标出“接着做”再动手，不要自己挑。各部分的新名字和旧名的对照，见 [docs/design.md](docs/design.md)「名字对照」。动手之前按顺序读：
+第一档（M1、M1.1、M1.2）、M2.1、M2.1.1、「换名」和 M2.2「登录与目录」已经完成。下一项是 M2.3「待续」，见 [docs/roadmap.md](docs/roadmap.md) 里标着“接着做”的那一节；之后的等标出来再动手，不要自己挑。各部分的新名字和旧名的对照，见 [docs/design.md](docs/design.md)「名字对照」。动手之前按顺序读：
 
 1. [docs/design.md](docs/design.md)：为什么这样做
 2. [docs/architecture.md](docs/architecture.md)：模块、流程、目录、配置
