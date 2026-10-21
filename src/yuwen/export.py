@@ -52,9 +52,18 @@ def build_markdown_export(store: Store, *, character_name: str = "他") -> str:
             )
     lines.extend(["## 随笔", ""])
     for memory in store.list_table("memories"):
+        status = memory["status"]
+        status_text = ""
+        if status == "open":
+            status_text = "，待续"
+        elif status in {"done", "dropped"}:
+            label = "完结" if status == "done" else "不做了"
+            status_text = f"，{label}"
+            if memory["resolved_note"]:
+                status_text += f"：{memory['resolved_note']}"
         lines.append(
             f"- {_display_time(memory['happened_at'])} · {memory['emotion_text']} · "
-            f"{memory['summary']}（确定度 {memory['certainty']}，被想起 {memory['recall_count']} 次）"
+            f"{memory['summary']}（确定度 {memory['certainty']}，被想起 {memory['recall_count']} 次{status_text}）"
         )
     lines.extend(["", "## 续写", ""])
     for handoff in store.list_table("handoffs"):

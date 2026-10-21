@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 import math
@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-from yuwen.config import DecayConfig, EmbeddingConfig, SurfacingConfig
+from yuwen.config import DecayConfig, EmbeddingConfig, SurfacingConfig, TodoConfig
 from yuwen.embedder import EmbeddingModel
 from yuwen.store import Store
 
@@ -49,6 +49,7 @@ class SurfacingService:
         config: SurfacingConfig = SurfacingConfig(),
         decay: DecayConfig = DecayConfig(),
         embedding: EmbeddingConfig = EmbeddingConfig(),
+        todo: TodoConfig = TodoConfig(),
         client: EmbeddingModel | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ):
@@ -56,6 +57,7 @@ class SurfacingService:
         self.config = config
         self.decay = decay
         self.embedding = embedding
+        self.todo = todo
         self.client = client
         self.clock = clock
 
@@ -114,6 +116,8 @@ class SurfacingService:
         days = max(0.0, (now - remembered).total_seconds() / 86_400)
         arousal = float(memory["arousal"]) if memory["arousal"] is not None else 0.3
         stability = self.decay.base_days * (1 + int(memory["recall_count"])) * (1 + arousal)
+        if memory["status"] in {"done", "dropped"}:
+            stability *= 0.5
         return math.exp(-days / stability)
 
     def _line(self, memory: dict[str, Any], now: datetime) -> str:
@@ -126,12 +130,27 @@ class SurfacingService:
             if float(memory["certainty"]) >= self.config.clear_threshold
             else "记不太清"
         )
-        line = f"· {date}（{clarity}）：{memory['summary']}。当时的心情：{memory['emotion_text']}。"
+        status = memory["status"]
+        extra = ""
+        if status == "open":
+            as_of = datetime.fromisoformat(str(memory["status_as_of"]))
+            if now - as_of > timedelta(days=self.todo.stale_days):
+                extra = "这是很久以前的状态，现在可能变了"
+            else:
+                extra = f"{as_of.month}月{as_of.day}日时还没完结"
+        elif status in {"done", "dropped"}:
+            extra = "已经做完了" if status == "done" else "后来不做了"
+            if memory["resolved_note"]:
+                extra += f"：{memory['resolved_note']}"
+        label = f"{clarity}，{extra}" if extra else clarity
+        line = f"· {date}（{label}）：{memory['summary']}。当时的心情：{memory['emotion_text']}。"
         if memory["quote"]:
             line += f"原话「{memory['quote']}」"
         return line
 
-    async def find(self, session_id: int, player_text: str) -> SurfacedResult | None:
+    async def find(
+        self, session_id: int, player_text: str, *, exclude_ids: tuple[int, ...] = ()
+    ) -> SurfacedResult | None:
         """挑选记忆但不计次，供续写前后决定最终带入内容。"""
 
         if not self.config.enabled or self.config.max_chars <= len(_INTRO) + 1:
@@ -151,7 +170,8 @@ class SurfacingService:
             def eligible(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 return [
                     row for row in rows
-                    if not visible_ids.intersection(json.loads(row["source_message_ids"]))
+                    if int(row["id"]) not in exclude_ids
+                    and not visible_ids.intersection(json.loads(row["source_message_ids"]))
                 ]
 
             use_embedding = bool(self.embedding.base_url and self.client)

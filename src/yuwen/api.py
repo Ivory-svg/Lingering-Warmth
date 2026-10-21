@@ -12,7 +12,7 @@ from typing import Literal
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from yuwen.chat import ChatModel, ChatService
 from yuwen.auth import AuthService, COOKIE_NAME
@@ -109,6 +109,13 @@ class MemorySeal(BaseModel):
     sealed: bool
 
 
+class MemoryStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["open", "done", "dropped"] | None
+    note: str = Field(default="", max_length=100)
+
+
 def create_app(
     config: AppConfig,
     *,
@@ -135,6 +142,7 @@ def create_app(
         scan_depth=config.worldbook.scan_depth,
         entry_budget=config.worldbook.entry_budget,
         corpus_sample=config.worldbook.corpus_sample,
+        todo=config.todo,
     )
     inflow_service = InflowService(
         database,
@@ -143,6 +151,7 @@ def create_app(
         player_name=config.character.player_name,
         every_n_turns=config.inflow.every_n_turns,
         embedder=embedder,
+        todo=config.todo,
     )
     handoff_service = HandoffService(
         database,
@@ -168,6 +177,7 @@ def create_app(
         config=config.surfacing,
         decay=config.decay,
         embedding=config.embedding,
+        todo=config.todo,
         client=vector_client,
     )
     chat_service = ChatService(
@@ -284,7 +294,7 @@ def create_app(
 
     @app.get("/memories")
     async def get_memories(
-        filter: Literal["all", "unclear", "fading", "sealed"] = "all",
+        filter: Literal["all", "unclear", "fading", "sealed", "open"] = "all",
         q: str = "",
         offset: int = Query(0, ge=0),
         limit: int = Query(50, ge=1, le=200),
@@ -319,6 +329,13 @@ def create_app(
     async def post_memory_seal(memory_id: int, request: MemorySeal) -> dict[str, object]:
         try:
             return catalog_service.seal(memory_id, request.sealed)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="找不到这条记忆") from exc
+
+    @app.post("/memories/{memory_id}/status")
+    async def post_memory_status(memory_id: int, request: MemoryStatus) -> dict[str, object]:
+        try:
+            return catalog_service.set_status(memory_id, request.status, request.note)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="找不到这条记忆") from exc
 

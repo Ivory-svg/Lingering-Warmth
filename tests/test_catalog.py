@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from authed_client import TestClient
+from fastapi.testclient import TestClient as AnonymousClient
 from test_chat_api import FakeLLM, make_parts
 from test_embedder import FakeEmbedding
 from yuwen.api import create_app
@@ -127,3 +128,50 @@ def test_catalog_page_and_correction_reembed_with_fake_model(tmp_path: Path) -> 
 
     assert ["改正后的摘要"] in fake.calls
     assert store.get_memory(memory_id)["embedding_model"] == "fake-model"
+
+
+def test_todo_status_endpoint_filter_history_and_validation(tmp_path: Path) -> None:
+    config, store, books = make_parts(tmp_path)
+    session_id = store.create_session()
+    memory_id = _memory(store, session_id, "周五要看牙")
+    app = create_app(config, store=store, llm=FakeLLM(), worldbook=books)
+
+    with AnonymousClient(app) as anonymous:
+        assert anonymous.post(f"/memories/{memory_id}/status", json={"status": "open"}).status_code == 401
+    with TestClient(app) as client:
+        endpoint = f"/memories/{memory_id}/status"
+        assert client.get("/memories?filter=open").json()["total"] == 0
+        opened = client.post(endpoint, json={"status": "open"}).json()
+        assert opened["status"] == "open" and opened["status_as_of"] is not None
+        assert opened["resolved_at"] is None and opened["resolved_note"] is None
+        assert opened["history"][0]["reason"] == "玩家标成待续"
+        assert client.get("/memories?filter=open").json()["items"][0]["id"] == memory_id
+        assert client.post(endpoint, json={"status": "open", "note": "无须修改"}).status_code == 200
+        assert len(store.list_memory_history(memory_id)) == 1
+
+        done = client.post(endpoint, json={"status": "done", "note": "看完了"}).json()
+        assert done["status"] == "done" and done["resolved_note"] == "看完了"
+        assert done["status_as_of"] == done["resolved_at"]
+        assert done["history"][0]["reason"] == "玩家标完结：看完了"
+        assert done["history"][0]["snapshot"]["status"] == "open"
+        assert "embedding" not in done["history"][0]["snapshot"]
+        assert client.get("/memories?filter=open").json()["total"] == 0
+
+        reopened = client.post(endpoint, json={"status": "open"}).json()
+        assert reopened["history"][0]["reason"] == "玩家重新打开"
+        assert reopened["resolved_at"] is None and reopened["resolved_note"] is None
+
+        dropped = client.post(endpoint, json={"status": "dropped", "note": "电影下架了"}).json()
+        assert dropped["history"][0]["reason"] == "玩家标不做了：电影下架了"
+        assert dropped["resolved_note"] == "电影下架了"
+        cleared = client.post(endpoint, json={"status": None}).json()
+        assert cleared["history"][0]["reason"] == "玩家说不是待办"
+        assert all(cleared[key] is None for key in ("status", "status_as_of", "resolved_at", "resolved_note"))
+        assert len(store.list_memory_history(memory_id)) == 5
+        assert client.post(endpoint, json={"status": "invalid"}).status_code == 422
+        assert client.post(endpoint, json={"status": "done", "note": "长" * 101}).status_code == 422
+        assert client.post(endpoint, json={"note": "缺状态"}).status_code == 422
+        assert client.post("/memories/999/status", json={"status": "open"}).status_code == 404
+        page = client.get("/catalog").text
+        for label in ("待续", "标完结", "标不做了", "重新打开", "这不是待办"):
+            assert label in page

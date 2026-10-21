@@ -73,6 +73,15 @@ class DecayConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class TodoConfig:
+    enabled: bool = True
+    max_in_context: int = 3
+    cooldown_hours: int = 12
+    stale_days: int = 30
+    max_open_in_prompt: int = 10
+
+
+@dataclass(frozen=True, slots=True)
 class GatekeeperConfig:
     pre_send: bool = True
     voice_notes_in_context: int = 10
@@ -121,6 +130,7 @@ class AppConfig:
     embedding: EmbeddingConfig = EmbeddingConfig()
     surfacing: SurfacingConfig = SurfacingConfig()
     decay: DecayConfig = DecayConfig()
+    todo: TodoConfig = TodoConfig()
     auth: AuthConfig = AuthConfig()
 
 
@@ -236,6 +246,15 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
     ):
         raise ConfigError("[decay] base_days 必须是正数")
 
+    todo_data = _section(data, "todo")
+    todo_enabled = todo_data.get("enabled", True)
+    if not isinstance(todo_enabled, bool):
+        raise ConfigError("[todo] enabled 必须是布尔值")
+    todo_max_in_context = _integer_option(todo_data, "max_in_context", "todo", 3, 1)
+    todo_cooldown_hours = _integer_option(todo_data, "cooldown_hours", "todo", 12, 0)
+    todo_stale_days = _integer_option(todo_data, "stale_days", "todo", 30, 1)
+    todo_max_open_in_prompt = _integer_option(todo_data, "max_open_in_prompt", "todo", 10, 1)
+
     gatekeeper_data = _section(data, "gatekeeper")
     pre_send = gatekeeper_data.get("pre_send", True)
     notes_limit = gatekeeper_data.get("voice_notes_in_context", 10)
@@ -313,5 +332,9 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
             surfacing_clear_threshold,
         ),
         decay=DecayConfig(float(base_days)),
+        todo=TodoConfig(
+            todo_enabled, todo_max_in_context, todo_cooldown_hours,
+            todo_stale_days, todo_max_open_in_prompt,
+        ),
         auth=AuthConfig(password, session_days, secure_cookie),
     )
