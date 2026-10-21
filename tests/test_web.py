@@ -37,6 +37,11 @@ def test_web_page_exposes_chat_flag_and_handoff_ui(tmp_path: Path) -> None:
     assert 'href="/export?format=markdown"' in response.text
     assert 'href="/export?format=json"' in response.text
     assert 'href="/catalog"' in response.text
+    assert "他先写的" in response.text
+    assert "setInterval(pollLetters, 60000)" in response.text
+    assert "`/messages?after_id=${newestMessageId}`" in response.text
+    assert "document.hidden" in response.text
+    assert "visibilitychange" in response.text
 
 
 def test_app_fails_at_startup_when_worldbook_core_is_missing(tmp_path: Path) -> None:

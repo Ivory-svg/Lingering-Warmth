@@ -17,6 +17,7 @@
     .message { max-width: 78%; padding: 11px 14px; border-radius: 16px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
     .user { align-self: flex-end; background: #6c5544; color: white; border-bottom-right-radius: 4px; }
     .assistant { align-self: flex-start; background: #f0e8df; border-bottom-left-radius: 4px; }
+    .letter-label { display: block; margin-bottom: 4px; color: #806e5f; font-size: 11px; }
     .assistant.has-ooc { position: relative; padding-right: 26px; }
     .ooc-mark { position: absolute; top: 8px; right: 8px; width: 9px; height: 9px; padding: 0; border: 0; border-radius: 50%; background: #ad9b8c; cursor: pointer; }
     .ooc-mark:hover, .ooc-mark:focus-visible { background: #6c5544; outline-offset: 3px; }
@@ -54,6 +55,16 @@
     const menu = document.querySelector('#message-menu');
     const flagOption = document.querySelector('#flag-ooc');
     let selectedMessage = null;
+    let newestMessageId = 0;
+    let unreadLetters = 0;
+    const baseTitle = document.title;
+
+    function updateTitle() {
+      document.title = unreadLetters ? `(${unreadLetters}) ${baseTitle}` : baseTitle;
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) { unreadLetters = 0; updateTitle(); }
+    });
 
     async function apiFetch(url, options) {
       const response = await fetch(url, options);
@@ -178,10 +189,18 @@
       line.textContent = '续写 · 新的一卷';
       messages.append(line);
     }
-    function addMessage(role, text, messageId = null, ooc = null) {
+    function addMessage(role, text, messageId = null, ooc = null, letter = false, createdAt = null) {
       clearEmpty();
+      if (messageId !== null) newestMessageId = Math.max(newestMessageId, messageId);
       const item = document.createElement('div');
       item.className = `message ${role}`;
+      if (letter) {
+        const label = document.createElement('small');
+        label.className = 'letter-label';
+        const time = createdAt ? new Date(createdAt).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'}) : '';
+        label.textContent = `他先写的${time ? ` · ${time}` : ''}`;
+        item.append(label);
+      }
       const content = document.createElement('span');
       content.className = 'message-text';
       content.textContent = text;
@@ -229,13 +248,32 @@
         const response = await apiFetch('/messages');
         if (!response.ok) throw new Error('加载历史消息失败');
         for (const message of await response.json()) {
-          addMessage(message.role, message.content, message.message_id, message.ooc);
+          addMessage(message.role, message.content, message.message_id, message.ooc,
+            message.letter, message.created_at);
         }
       } catch (error) {
         errorBox.dataset.kind = 'error';
         errorBox.textContent = error.message;
       } finally {
         send.disabled = false;
+      }
+    }
+
+    async function pollLetters() {
+      try {
+        const response = await apiFetch(`/messages?after_id=${newestMessageId}`);
+        if (!response.ok) throw new Error('查看新来信失败');
+        for (const message of await response.json()) {
+          if (message.message_id <= newestMessageId) continue;
+          newestMessageId = message.message_id;
+          if (!message.letter) continue;
+          addMessage(message.role, message.content, message.message_id, message.ooc,
+            true, message.created_at);
+          if (document.hidden) { unreadLetters += 1; updateTitle(); }
+        }
+      } catch (error) {
+        errorBox.dataset.kind = 'error';
+        errorBox.textContent = error.message;
       }
     }
 
@@ -266,6 +304,7 @@
       }
     });
     restoreMessages();
+    setInterval(pollLetters, 60000);
   </script>
 </body>
 </html>

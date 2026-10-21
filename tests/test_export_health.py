@@ -49,12 +49,12 @@ def test_build_export_contains_every_table_and_base64_embedding(tmp_path: Path) 
 
     exported = build_export(store)
 
-    assert exported["schema_version"] == "5"
+    assert exported["schema_version"] == "6"
     assert set(exported["tables"]) == set(TABLES)
     assert exported["tables"]["memories"][0]["embedding"] == base64.b64encode(
         b"\x00\x01\x02"
     ).decode("ascii")
-    assert all(exported["tables"][table] for table in TABLES)
+    assert all(exported["tables"][table] for table in TABLES if table != "wake_log")
 
 
 def test_export_and_health_endpoints(tmp_path: Path) -> None:
@@ -67,7 +67,7 @@ def test_export_and_health_endpoints(tmp_path: Path) -> None:
         exported = client.get("/export")
         markdown = client.get("/export?format=markdown")
 
-    assert health.json() == {"ok": True, "schema_version": "5"}
+    assert health.json() == {"ok": True, "schema_version": "6"}
     assert exported.status_code == 200
     assert "attachment" in exported.headers["content-disposition"]
     assert set(exported.json()["tables"]) == set(TABLES)
@@ -145,3 +145,21 @@ def test_markdown_export_includes_todo_states(tmp_path: Path) -> None:
     assert [row["status"] for row in build_export(store)["tables"]["memories"]] == [
         "open", "done", "dropped",
     ]
+
+
+def test_exports_include_wake_log_and_letter_marker(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    store.add_message(session_id, "user", "你好")
+    wake_id, message_id = store.add_wake_letter(
+        session_id, "先写给你。", "想念",
+        checked_at="2026-10-21T15:40:00+08:00", surfaced_memory_ids=[],
+    )
+
+    exported = build_export(store)
+    markdown = build_markdown_export(store)
+
+    assert exported["tables"]["wake_log"][0]["id"] == wake_id
+    assert exported["tables"]["wake_log"][0]["message_id"] == message_id
+    assert "他先写的\n**他** 15:40\n先写给你。" in markdown

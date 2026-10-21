@@ -50,6 +50,20 @@ cooldown_hours = 12
 stale_days = 30
 max_open_in_prompt = 10
 
+[wake]
+enabled = true
+# 留空按服务器本地时间；也可填 Asia/Shanghai 等时区名。
+timezone = ""
+active_hours = "09:00-23:00"
+min_interval_minutes = 40
+max_interval_minutes = 120
+min_silence_minutes = 60
+max_per_day = 3
+max_unanswered = 2
+# 留空不通知；text 可填 ntfy 频道地址，json 可填自己的接收程序地址。
+notify_url = ""
+notify_format = "text"
+
 [gatekeeper]
 pre_send = true
 voice_notes_in_context = 10

@@ -161,6 +161,7 @@ def test_get_messages_restores_current_session_with_latest_voice_note(tmp_path: 
             "role": "user",
             "content": "你好",
             "created_at": "2026-10-07T10:00:00+08:00",
+            "letter": False,
             "ooc": None,
         },
         {
@@ -168,6 +169,7 @@ def test_get_messages_restores_current_session_with_latest_voice_note(tmp_path: 
             "role": "assistant",
             "content": "今天怎么没来。",
             "created_at": "2026-10-07T10:01:00+08:00",
+            "letter": False,
             "ooc": {
                 "original": "今天怎么没来。",
                 "reason": "玩家觉得这句仍不合适",
@@ -181,6 +183,7 @@ def test_get_messages_restores_current_session_with_latest_voice_note(tmp_path: 
             "role": "assistant",
             "content": "先坐下。",
             "created_at": "2026-10-07T10:02:00+08:00",
+            "letter": False,
             "ooc": None,
         },
     ]

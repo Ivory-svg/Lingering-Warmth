@@ -1,5 +1,6 @@
 import os
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 from authed_client import TestClient
@@ -38,6 +39,20 @@ def test_worldbook_refreshes_when_file_changes(tmp_path: Path) -> None:
     os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 1_000_000))
 
     assert "改过的第一份" in reader.read()
+
+
+def test_daily_now_uses_current_or_previous_day_entry(tmp_path: Path) -> None:
+    reader = make_reader(tmp_path)
+    path = tmp_path / "worldbook" / "daily.md"
+    assert reader.daily_now(datetime(2026, 10, 21, 12, tzinfo=timezone.utc)) == ""
+    path.write_text(
+        "# 日常\n- 09:00 开店\n- 14:30 修表\n- 22:00 收拾店面\n- 25:00 错误时间\n",
+        encoding="utf-8",
+    )
+    assert reader.daily_now(datetime(2026, 10, 21, 15, tzinfo=timezone.utc)) == "修表"
+    assert reader.daily_now(datetime(2026, 10, 21, 8, tzinfo=timezone.utc)) == "收拾店面"
+    path.write_text("没有时间行", encoding="utf-8")
+    assert reader.daily_now(datetime(2026, 10, 21, 15, tzinfo=timezone.utc)) == ""
 
 
 def test_worldbook_matches_entries_by_keys_and_priority_with_budget(tmp_path: Path) -> None:

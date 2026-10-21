@@ -56,6 +56,12 @@ def test_load_config_applies_defaults_and_resolves_paths(tmp_path: Path) -> None
     assert config.todo.cooldown_hours == 12
     assert config.todo.stale_days == 30
     assert config.todo.max_open_in_prompt == 10
+    assert config.wake.enabled
+    assert config.wake.timezone == ""
+    assert config.wake.active_hours == "09:00-23:00"
+    assert (config.wake.min_interval_minutes, config.wake.max_interval_minutes) == (40, 120)
+    assert (config.wake.min_silence_minutes, config.wake.max_per_day, config.wake.max_unanswered) == (60, 3, 2)
+    assert config.wake.notify_url == "" and config.wake.notify_format == "text"
     assert config.server.port == 8787
 
 
@@ -94,7 +100,12 @@ def test_load_config_accepts_new_options(tmp_path: Path) -> None:
         "max_chars = 600\nmin_similarity = 0.6\nclear_threshold = 0.8\n"
         "\n[decay]\nbase_days = 12.5\n"
         "\n[todo]\nenabled = false\nmax_in_context = 2\n"
-        "cooldown_hours = 6\nstale_days = 20\nmax_open_in_prompt = 7\n",
+        "cooldown_hours = 6\nstale_days = 20\nmax_open_in_prompt = 7\n"
+        "\n[wake]\nenabled = false\ntimezone = 'Asia/Shanghai'\n"
+        "active_hours = '08:30-21:45'\nmin_interval_minutes = 15\n"
+        "max_interval_minutes = 90\nmin_silence_minutes = 20\n"
+        "max_per_day = 4\nmax_unanswered = 1\n"
+        "notify_url = 'https://example.test/topic'\nnotify_format = 'json'\n",
     )
     config_file.write_text(
         config_file.read_text(encoding="utf-8").replace(
@@ -129,6 +140,11 @@ def test_load_config_accepts_new_options(tmp_path: Path) -> None:
     assert config.todo.cooldown_hours == 6
     assert config.todo.stale_days == 20
     assert config.todo.max_open_in_prompt == 7
+    assert not config.wake.enabled
+    assert config.wake.timezone == "Asia/Shanghai"
+    assert config.wake.active_hours == "08:30-21:45"
+    assert config.wake.min_interval_minutes == 15 and config.wake.max_interval_minutes == 90
+    assert config.wake.notify_format == "json"
 
 
 @pytest.mark.parametrize(
@@ -151,6 +167,11 @@ def test_load_config_accepts_new_options(tmp_path: Path) -> None:
         ("todo", "cooldown_hours = -1", "cooldown_hours"),
         ("todo", "stale_days = 0", "stale_days"),
         ("todo", "max_open_in_prompt = 0", "max_open_in_prompt"),
+        ("wake", "active_hours = '9:00-23:00'", "active_hours"),
+        ("wake", "active_hours = '09:60-23:00'", "active_hours"),
+        ("wake", "timezone = 'No/Such_Zone'", "timezone"),
+        ("wake", "min_interval_minutes = 0", "min_interval_minutes"),
+        ("wake", "notify_format = 'xml'", "notify_format"),
     ],
 )
 def test_load_config_rejects_invalid_new_options(
@@ -160,4 +181,11 @@ def test_load_config_rejects_invalid_new_options(
     write_config(config_file, f"\n[{section}]\n{value}\n")
 
     with pytest.raises(ConfigError, match=key):
+        load_config(config_file)
+
+
+def test_wake_interval_order_is_checked(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    write_config(config_file, "\n[wake]\nmin_interval_minutes = 121\nmax_interval_minutes = 120\n")
+    with pytest.raises(ConfigError, match="min_interval_minutes.*max_interval_minutes"):
         load_config(config_file)

@@ -19,6 +19,7 @@ TABLES = (
     "memory_history",
     "handoffs",
     "voice_notes",
+    "wake_log",
 )
 
 
@@ -91,7 +92,14 @@ class Store:
                     .joinpath("migrations", "005_todo_status.sql")
                     .read_text(encoding="utf-8")
                 )
-            elif version != "5":
+                version = "5"
+            if version == "5":
+                connection.executescript(
+                    files("yuwen")
+                    .joinpath("migrations", "006_wake_log.sql")
+                    .read_text(encoding="utf-8")
+                )
+            elif version != "6":
                 raise RuntimeError(f"不支持的数据库版本：{version}")
 
     def schema_version(self) -> str:
@@ -247,6 +255,50 @@ class Store:
                 tuple(message_ids),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def add_wake_log(self, checked_at: str, decided: str, reason: str) -> int:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO wake_log (checked_at, decided, reason) VALUES (?, ?, ?)",
+                (checked_at, decided, reason),
+            )
+            return int(cursor.lastrowid)
+
+    def list_wake_log(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM wake_log ORDER BY id").fetchall()
+        return [dict(row) for row in rows]
+
+    def add_wake_letter(
+        self, session_id: int, content: str, reason: str, *,
+        checked_at: str, surfaced_memory_ids: Sequence[int],
+    ) -> tuple[int, int]:
+        """先建记录，再原子地关联来信消息和记录。"""
+
+        with self._connect() as connection:
+            wake = connection.execute(
+                "INSERT INTO wake_log (checked_at, decided, reason) VALUES (?, 'send', ?)",
+                (checked_at, reason),
+            )
+            wake_id = int(wake.lastrowid)
+            message = connection.execute(
+                """INSERT INTO messages (session_id, role, content, created_at, meta)
+                VALUES (?, 'assistant', ?, ?, ?)""",
+                (
+                    session_id, content, checked_at,
+                    _json({"letter": True, "wake_log_id": wake_id,
+                           "surfaced_memory_ids": list(surfaced_memory_ids)}),
+                ),
+            )
+            message_id = int(message.lastrowid)
+            connection.execute(
+                "UPDATE wake_log SET message_id = ? WHERE id = ?", (message_id, wake_id)
+            )
+            return wake_id, message_id
+
+    def mark_wake_notified(self, wake_id: int) -> None:
+        with self._connect() as connection:
+            connection.execute("UPDATE wake_log SET notified = 1 WHERE id = ?", (wake_id,))
 
     def add_memory(
         self,

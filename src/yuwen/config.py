@@ -5,8 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from pathlib import Path
+import re
 import tomllib
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 class ConfigError(ValueError):
@@ -82,6 +84,20 @@ class TodoConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class WakeConfig:
+    enabled: bool = True
+    timezone: str = ""
+    active_hours: str = "09:00-23:00"
+    min_interval_minutes: int = 40
+    max_interval_minutes: int = 120
+    min_silence_minutes: int = 60
+    max_per_day: int = 3
+    max_unanswered: int = 2
+    notify_url: str = ""
+    notify_format: str = "text"
+
+
+@dataclass(frozen=True, slots=True)
 class GatekeeperConfig:
     pre_send: bool = True
     voice_notes_in_context: int = 10
@@ -131,6 +147,7 @@ class AppConfig:
     surfacing: SurfacingConfig = SurfacingConfig()
     decay: DecayConfig = DecayConfig()
     todo: TodoConfig = TodoConfig()
+    wake: WakeConfig = WakeConfig()
     auth: AuthConfig = AuthConfig()
 
 
@@ -255,6 +272,36 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
     todo_stale_days = _integer_option(todo_data, "stale_days", "todo", 30, 1)
     todo_max_open_in_prompt = _integer_option(todo_data, "max_open_in_prompt", "todo", 10, 1)
 
+    wake_data = _section(data, "wake")
+    wake_enabled = wake_data.get("enabled", True)
+    if not isinstance(wake_enabled, bool):
+        raise ConfigError("[wake] enabled 必须是布尔值")
+    wake_timezone = wake_data.get("timezone", "")
+    if not isinstance(wake_timezone, str):
+        raise ConfigError("[wake] timezone 必须是时区名或空字符串")
+    if wake_timezone:
+        try:
+            ZoneInfo(wake_timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ConfigError(f"[wake] timezone 不认识：{wake_timezone}") from exc
+    wake_active_hours = wake_data.get("active_hours", "09:00-23:00")
+    match = re.fullmatch(r"(\d{2}):(\d{2})-(\d{2}):(\d{2})", wake_active_hours) if isinstance(wake_active_hours, str) else None
+    if not match or any(int(value) >= limit for value, limit in zip(match.groups(), (24, 60, 24, 60))):
+        raise ConfigError("[wake] active_hours 必须是 HH:MM-HH:MM，小时 00–23、分钟 00–59")
+    wake_min_interval = _integer_option(wake_data, "min_interval_minutes", "wake", 40, 1)
+    wake_max_interval = _integer_option(wake_data, "max_interval_minutes", "wake", 120, 1)
+    if wake_min_interval > wake_max_interval:
+        raise ConfigError("[wake] min_interval_minutes 不能大于 max_interval_minutes")
+    wake_min_silence = _integer_option(wake_data, "min_silence_minutes", "wake", 60, 0)
+    wake_max_per_day = _integer_option(wake_data, "max_per_day", "wake", 3, 0)
+    wake_max_unanswered = _integer_option(wake_data, "max_unanswered", "wake", 2, 0)
+    wake_notify_url = wake_data.get("notify_url", "")
+    wake_notify_format = wake_data.get("notify_format", "text")
+    if not isinstance(wake_notify_url, str):
+        raise ConfigError("[wake] notify_url 必须是字符串")
+    if not isinstance(wake_notify_format, str) or wake_notify_format not in {"text", "json"}:
+        raise ConfigError("[wake] notify_format 只能是 text 或 json")
+
     gatekeeper_data = _section(data, "gatekeeper")
     pre_send = gatekeeper_data.get("pre_send", True)
     notes_limit = gatekeeper_data.get("voice_notes_in_context", 10)
@@ -335,6 +382,11 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
         todo=TodoConfig(
             todo_enabled, todo_max_in_context, todo_cooldown_hours,
             todo_stale_days, todo_max_open_in_prompt,
+        ),
+        wake=WakeConfig(
+            wake_enabled, wake_timezone, wake_active_hours, wake_min_interval,
+            wake_max_interval, wake_min_silence, wake_max_per_day,
+            wake_max_unanswered, wake_notify_url.strip(), wake_notify_format,
         ),
         auth=AuthConfig(password, session_days, secure_cookie),
     )

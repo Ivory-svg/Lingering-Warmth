@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from datetime import datetime
+import json
 from typing import Any
 
 from yuwen.store import Store, TABLES, now_iso
@@ -43,8 +44,14 @@ def build_markdown_export(store: Store, *, character_name: str = "他") -> str:
                 "assistant": character_name,
                 "event": "事件",
             }.get(str(message["role"]), str(message["role"]))
+            try:
+                meta = json.loads(message["meta"]) if message["meta"] else {}
+            except (TypeError, ValueError):
+                meta = {}
+            letter = isinstance(meta, dict) and meta.get("letter") is True
             lines.extend(
                 [
+                    *(["他先写的"] if letter else []),
                     f"**{label}** {_display_time(message['created_at'])[11:]}",
                     store.visible_message_content(message),
                     "",

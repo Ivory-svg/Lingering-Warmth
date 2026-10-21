@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Sequence
+from email.header import Header
 import json
 import math
 from typing import Any
 
 import httpx
 
-from yuwen.config import EmbeddingConfig, LLMConfig
+from yuwen.config import EmbeddingConfig, LLMConfig, WakeConfig
 
 
 class LLMError(RuntimeError):
@@ -197,3 +198,31 @@ class EmbeddingClient:
                     break
                 await self._sleep(2**attempt)
         raise LLMError("embedding 调用在重试后仍然失败") from last_error
+
+
+class WakeNotifier:
+    """来信写入后，向玩家配置的地址发送一次通知。"""
+
+    def __init__(self, config: WakeConfig, *, client: httpx.AsyncClient | None = None):
+        self.config = config
+        self._client = client or httpx.AsyncClient(timeout=5)
+        self._owns_client = client is None
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+    async def send(self, payload: dict[str, Any]) -> bool:
+        if not self.config.notify_url:
+            return False
+        if self.config.notify_format == "json":
+            response = await self._client.post(self.config.notify_url, json=payload, timeout=5)
+        else:
+            response = await self._client.post(
+                self.config.notify_url,
+                content=str(payload["content"]).encode("utf-8"),
+                headers={"Title": Header(str(payload["character"]), "utf-8").encode(),
+                         "Content-Type": "text/plain; charset=utf-8"},
+                timeout=5,
+            )
+        return 200 <= response.status_code < 300
