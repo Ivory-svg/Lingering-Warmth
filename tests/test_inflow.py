@@ -8,6 +8,9 @@ import pytest
 
 from test_chat_api import make_parts
 from yuwen.api import create_app
+from yuwen.config import TodoConfig
+from yuwen.config import EmbeddingConfig
+from yuwen.embedder import MemoryEmbedder
 from yuwen.handoff import HandoffService
 from yuwen.inflow import InflowService
 from yuwen.store import Store
@@ -69,6 +72,141 @@ def test_inflow_garbled_result_uses_fallback_without_raising(tmp_path: Path) -> 
     assert memory["emotion_text"] == "未标注"  # type: ignore[index]
     assert memory["certainty"] == 0.5  # type: ignore[index]
 
+
+def test_todo_prompt_fields_follow_enabled_switch(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    user_id, assistant_id = turn(store)
+    turns = [(store.get_message(user_id), store.get_message(assistant_id))]
+
+    enabled = InflowService(store, ReplyLLM("{}"))
+    prompt = enabled._prompt(turns, {})
+    assert '"todos"' in prompt
+    assert '"resolved"' not in prompt
+    assert "\n【还没完结的事】\n" not in prompt
+
+    disabled = InflowService(store, ReplyLLM("{}"), todo=TodoConfig(enabled=False))
+    prompt = disabled._prompt(turns, {})
+    assert '"todos"' not in prompt
+    assert '"resolved"' not in prompt
+    assert "\n【还没完结的事】\n" not in prompt
+
+
+def test_inflow_writes_at_most_three_todos_with_batch_time_and_vectors(tmp_path: Path) -> None:
+    class FakeEmbedding:
+        def __init__(self):
+            self.calls = []
+
+        async def embed(self, texts):
+            self.calls.append(list(texts))
+            return [[1.0, 0.0] for _ in texts]
+
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    user_id = store.add_message(session_id, "user", "下周去看牙", created_at="2026-10-20T10:00:00+08:00")
+    assistant_id = store.add_message(session_id, "assistant", "我记着。", created_at="2026-10-20T10:01:00+08:00")
+    llm = ReplyLLM(json.dumps({
+        "summary": "阿栀说下周去看牙", "emotion_text": "平静", "certainty": 0.8,
+        "todos": [{"summary": f"待续 {number}", "quote": f"原话 {number}"} for number in range(4)],
+    }, ensure_ascii=False))
+    fake = FakeEmbedding()
+    embedder = MemoryEmbedder(store, fake, EmbeddingConfig("https://fake.test"))
+
+    asyncio.run(InflowService(store, llm, embedder=embedder).process_turn(user_id, assistant_id))
+
+    rows = store.list_table("memories")
+    assert len(rows) == 4
+    assert [row["summary"] for row in rows[1:]] == ["待续 0", "待续 1", "待续 2"]
+    for row in rows[1:]:
+        assert row["kind"] == "turn" and row["status"] == "open"
+        assert row["status_as_of"] == row["happened_at"] == "2026-10-20T10:01:00+08:00"
+        assert row["certainty"] == 0.8 and row["emotion_text"] == "平静"
+        assert json.loads(row["source_message_ids"]) == [user_id, assistant_id]
+        assert row["embedding_model"] == "bge-m3"
+    assert len(fake.calls) == 4
+
+
+def test_inflow_resolves_only_listed_open_todos_and_saves_history(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    open_id = store.add_memory(
+        kind="turn", happened_at="2026-10-19T10:00:00+08:00", summary="阿栀要看牙",
+        emotion_text="平静", certainty=0.9, source_message_ids=[], session_id=session_id,
+        status="open", status_as_of="2026-10-19T10:00:00+08:00",
+    )
+    user_id = store.add_message(session_id, "user", "牙看完了", created_at="2026-10-20T10:00:00+08:00")
+    assistant_id = store.add_message(session_id, "assistant", "那就好。", created_at="2026-10-20T10:01:00+08:00")
+    llm = ReplyLLM(json.dumps({
+        "summary": "阿栀看完牙", "emotion_text": "放松", "certainty": 0.9,
+        "resolved": [
+            {"id": open_id, "status": "done", "note": "阿栀说牙看完了"},
+            {"id": 999, "status": "done", "note": "乱写的编号"},
+            {"id": open_id, "status": "unknown", "note": "乱写的状态"},
+        ],
+    }, ensure_ascii=False))
+
+    asyncio.run(InflowService(store, llm).process_turn(user_id, assistant_id))
+
+    assert f"[#{open_id}]" in llm.messages[0][0]["content"]
+    row = store.get_memory(open_id)
+    assert row["status"] == "done"
+    assert row["resolved_at"] == row["status_as_of"] == "2026-10-20T10:01:00+08:00"
+    assert row["resolved_note"] == "阿栀说牙看完了"
+    history = store.list_memory_history(open_id)
+    assert len(history) == 1 and history[0]["reason"] == "完结：阿栀说牙看完了"
+    assert json.loads(history[0]["snapshot"])["status"] == "open"
+
+
+@pytest.mark.parametrize("broken_field", ["todos", "resolved"])
+def test_inflow_bad_todo_field_does_not_discard_other_field_or_summary(
+    tmp_path: Path, broken_field: str
+) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    open_id = store.add_memory(
+        kind="turn", happened_at="2026-10-19T10:00:00+00:00", summary="看牙",
+        emotion_text="平静", certainty=0.9, source_message_ids=[], session_id=session_id,
+        status="open", status_as_of="2026-10-19T10:00:00+00:00",
+    )
+    user_id = store.add_message(session_id, "user", "牙看完了，周末去看电影")
+    assistant_id = store.add_message(session_id, "assistant", "好。")
+    payload = {
+        "summary": "阿栀看完牙，约好周末看电影", "emotion_text": "开心", "certainty": 0.9,
+        "todos": [{"summary": "周末看电影", "quote": "周末去看电影"}],
+        "resolved": [{"id": open_id, "status": "done", "note": "牙看完了"}],
+    }
+    payload[broken_field] = "错误格式"
+    memory_id = asyncio.run(InflowService(store, ReplyLLM(json.dumps(payload, ensure_ascii=False))).process_turn(
+        user_id, assistant_id
+    ))
+
+    assert store.get_memory(memory_id)["summary"] == "阿栀看完牙，约好周末看电影"
+    assert (store.get_memory(open_id)["status"] == "done") == (broken_field == "todos")
+    assert (len(store.list_table("memories")) == 3) == (broken_field == "resolved")
+
+
+def test_inflow_invalid_json_does_not_create_or_resolve_todos(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    open_id = store.add_memory(
+        kind="turn", happened_at="2026-10-19T10:00:00+00:00", summary="看牙",
+        emotion_text="平静", certainty=0.9, source_message_ids=[], session_id=session_id,
+        status="open", status_as_of="2026-10-19T10:00:00+00:00",
+    )
+    user_id = store.add_message(session_id, "user", "牙看完了")
+    assistant_id = store.add_message(session_id, "assistant", "好。")
+
+    memory_id = asyncio.run(InflowService(store, ReplyLLM("无效 JSON")).process_turn(
+        user_id, assistant_id
+    ))
+
+    assert store.get_memory(memory_id)["summary"] == "牙看完了"
+    assert store.get_memory(open_id)["status"] == "open"
+    assert len(store.list_table("memories")) == 2
 
 def test_inflow_prompt_uses_configured_names(tmp_path: Path) -> None:
     store = Store(tmp_path / "test.db")

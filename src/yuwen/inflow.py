@@ -9,6 +9,7 @@ import json
 from typing import Any
 
 from yuwen.chat import ChatModel
+from yuwen.config import TodoConfig
 from yuwen.embedder import MemoryEmbedder
 from yuwen.store import Store
 
@@ -30,6 +31,7 @@ class InflowService:
         player_name: str = "对方",
         every_n_turns: int = 1,
         embedder: MemoryEmbedder | None = None,
+        todo: TodoConfig = TodoConfig(),
     ):
         self.store = store
         self.llm = llm
@@ -37,6 +39,7 @@ class InflowService:
         self.player_name = player_name
         self.every_n_turns = every_n_turns
         self.embedder = embedder
+        self.todo = todo
         self._lock = asyncio.Lock()
         self._template = files("yuwen.prompts").joinpath("inflow.md").read_text(encoding="utf-8")
 
@@ -63,6 +66,7 @@ class InflowService:
         self,
         turns: list[tuple[dict[str, Any], dict[str, Any]]],
         surfaced: dict[int, str],
+        open_todos: list[dict[str, Any]] | None = None,
     ) -> str:
         dialogue = "\n".join(
             f"{self.player_name}：{user['content']}\n"
@@ -70,6 +74,17 @@ class InflowService:
             for user, assistant in turns
         )
         template = self._template
+        open_todos = open_todos or []
+        if self.todo.enabled and open_todos:
+            todo_lines = []
+            for memory in open_todos:
+                as_of = datetime.fromisoformat(str(memory["status_as_of"]))
+                todo_lines.append(
+                    f"[#{memory['id']}] {as_of.month}月{as_of.day}日：{memory['summary']}"
+                )
+            template = template.replace("{还没完结的事}", "\n".join(todo_lines))
+        else:
+            template = template.replace("\n【还没完结的事】\n{还没完结的事}\n", "")
         if surfaced:
             lines = []
             for memory_id in surfaced:
@@ -85,10 +100,22 @@ class InflowService:
             template = template.replace(
                 "\n【这几轮里递给{角色名}的往事】\n{递给他的往事}\n", ""
             )
-            template = template.replace(
-                ",\n \"used_memory_ids\": 上面往事里，{角色名}的回复真的用上了的编号，数组。用上是指：提到了、接上了，或者因为想起它才说了这样的话。只是话题相近、{角色名}没接的不算。拿不准就不算。没有就 []",
-                "",
+        lines = template.splitlines()
+        lines = [
+            line for line in lines
+            if not (
+                (line.startswith(' "used_memory_ids":') and not surfaced)
+                or (line.startswith(' "todos":') and not self.todo.enabled)
+                or (line.startswith(' "resolved":') and not (self.todo.enabled and open_todos))
             )
+        ]
+        field_indices = [
+            index for index, line in enumerate(lines)
+            if line.startswith('{"summary":') or line.startswith(' "')
+        ]
+        for index in field_indices:
+            lines[index] = lines[index].rstrip(",}") + ("}" if index == field_indices[-1] else ",")
+        template = "\n".join(lines)
         return (
             template.replace("{轮数}", str(len(turns)))
             .replace("{对话原文}", dialogue)
@@ -98,7 +125,7 @@ class InflowService:
         )
 
     @staticmethod
-    def _parse(text: str) -> dict[str, object]:
+    def _parse(text: str, *, todo_enabled: bool = True, allow_resolved: bool = True) -> dict[str, object]:
         data = json.loads(text)
         if not isinstance(data, dict):
             raise ValueError("随笔结果必须是 JSON 对象")
@@ -113,6 +140,22 @@ class InflowService:
             raise ValueError("随笔结果的 certainty 无效")
         quote = data.get("quote")
         used = data.get("used_memory_ids")
+        todos = data.get("todos") if todo_enabled else None
+        resolved = data.get("resolved") if todo_enabled and allow_resolved else None
+        todos = [
+            item for item in todos
+            if isinstance(item, dict)
+            and isinstance(item.get("summary"), str)
+            and isinstance(item.get("quote"), str)
+        ] if isinstance(todos, list) else []
+        resolved = [
+            item for item in resolved
+            if isinstance(item, dict)
+            and type(item.get("id")) is int
+            and item.get("status") in {"done", "dropped"}
+            and isinstance(item.get("note"), str)
+            and bool(item["note"].strip())
+        ] if isinstance(resolved, list) else []
         return {
             "summary": summary.strip(),
             "quote": quote if isinstance(quote, str) and quote else None,
@@ -125,7 +168,18 @@ class InflowService:
                 if isinstance(used, list) and all(type(item) is int for item in used)
                 else []
             ),
+            "todos": todos[:3],
+            "resolved": resolved,
         }
+
+    def _open_for_prompt(self, surfaced: dict[int, str]) -> list[dict[str, Any]]:
+        if not self.todo.enabled:
+            return []
+        rows = self.store.list_open_todos()
+        surfaced_rows = [row for row in rows if int(row["id"]) in surfaced]
+        other_rows = [row for row in rows if int(row["id"]) not in surfaced]
+        selected = surfaced_rows + other_rows[:max(0, self.todo.max_open_in_prompt - len(surfaced_rows))]
+        return sorted(selected, key=lambda row: (str(row["status_as_of"]), int(row["id"])), reverse=True)
 
     async def _summarize(
         self, turns: list[tuple[dict[str, Any], dict[str, Any]]]
@@ -133,13 +187,16 @@ class InflowService:
         """将一批完整轮次写成一条记忆；模型出错时保留原话摘要。"""
 
         surfaced = self._surfaced_for_turns(turns)
+        open_todos = self._open_for_prompt(surfaced)
         try:
             raw = await self.llm.chat(
-                [{"role": "user", "content": self._prompt(turns, surfaced)}],
+                [{"role": "user", "content": self._prompt(turns, surfaced, open_todos)}],
                 small=True,
                 json_response=True,
             )
-            memory = self._parse(raw)
+            memory = self._parse(
+                raw, todo_enabled=self.todo.enabled, allow_resolved=bool(open_todos)
+            )
         except Exception:
             raw_users = "；".join(str(user["content"]) for user, _ in turns)
             memory = {
@@ -167,6 +224,34 @@ class InflowService:
         used_ids = set(memory.get("used_memory_ids", [])) & surfaced.keys()
         for used_id in sorted(used_ids):
             self.store.mark_memories_recalled([used_id], recalled_at=surfaced[used_id])
+        if self.todo.enabled:
+            open_ids = {int(row["id"]) for row in open_todos}
+            for item in memory.get("resolved", []):
+                if item["id"] in open_ids:
+                    self.store.resolve_todo_from_inflow(
+                        item["id"], status=item["status"], note=item["note"].strip(),
+                        resolved_at=str(last_assistant["created_at"]),
+                    )
+            for item in memory.get("todos", []):
+                summary = item["summary"].strip()
+                if not summary:
+                    continue
+                todo_id = self.store.add_memory(
+                    kind="turn",
+                    happened_at=str(last_assistant["created_at"]),
+                    summary=summary,
+                    quote=item["quote"] or None,
+                    emotion_text=str(memory["emotion_text"]),
+                    valence=memory["valence"] if isinstance(memory["valence"], float) else None,
+                    arousal=memory["arousal"] if isinstance(memory["arousal"], float) else None,
+                    certainty=float(memory["certainty"]),
+                    source_message_ids=source_ids,
+                    session_id=int(last_assistant["session_id"]),
+                    status="open",
+                    status_as_of=str(last_assistant["created_at"]),
+                )
+                if self.embedder is not None:
+                    await self.embedder.embed_memory(todo_id)
         if self.embedder is not None:
             await self.embedder.embed_memory(memory_id)
         return memory_id

@@ -6,7 +6,7 @@ from authed_client import TestClient
 
 from test_chat_api import FakeLLM, make_parts
 from yuwen.api import create_app
-from yuwen.export import build_export
+from yuwen.export import build_export, build_markdown_export
 from yuwen.store import TABLES, Store
 
 
@@ -49,7 +49,7 @@ def test_build_export_contains_every_table_and_base64_embedding(tmp_path: Path) 
 
     exported = build_export(store)
 
-    assert exported["schema_version"] == "4"
+    assert exported["schema_version"] == "5"
     assert set(exported["tables"]) == set(TABLES)
     assert exported["tables"]["memories"][0]["embedding"] == base64.b64encode(
         b"\x00\x01\x02"
@@ -67,7 +67,7 @@ def test_export_and_health_endpoints(tmp_path: Path) -> None:
         exported = client.get("/export")
         markdown = client.get("/export?format=markdown")
 
-    assert health.json() == {"ok": True, "schema_version": "4"}
+    assert health.json() == {"ok": True, "schema_version": "5"}
     assert exported.status_code == 200
     assert "attachment" in exported.headers["content-disposition"]
     assert set(exported.json()["tables"]) == set(TABLES)
@@ -123,3 +123,25 @@ def test_markdown_export_uses_names_and_restored_reply_without_embedding(tmp_pat
     assert "被想起 1 次" in response.text
     assert "secret-embedding" not in response.text
     assert invalid.status_code == 422
+
+
+def test_markdown_export_includes_todo_states(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    ids = [store.add_memory(
+        kind="turn", happened_at="2026-10-20T10:00:00+00:00", summary=summary,
+        emotion_text="平静", certainty=0.9, source_message_ids=[], session_id=session_id,
+        status="open", status_as_of="2026-10-20T10:00:00+00:00",
+    ) for summary in ("看牙", "看电影", "写信")]
+    store.set_memory_status(ids[1], "done", note="已经看完", changed_at="2026-10-21T10:00:00+00:00")
+    store.set_memory_status(ids[2], "dropped", note="取消了", changed_at="2026-10-21T10:00:00+00:00")
+
+    markdown = build_markdown_export(store)
+
+    assert "看牙（确定度 0.9，被想起 0 次，待续）" in markdown
+    assert "看电影（确定度 0.9，被想起 0 次，完结：已经看完）" in markdown
+    assert "写信（确定度 0.9，被想起 0 次，不做了：取消了）" in markdown
+    assert [row["status"] for row in build_export(store)["tables"]["memories"]] == [
+        "open", "done", "dropped",
+    ]

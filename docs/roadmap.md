@@ -127,15 +127,15 @@
 
 见 [design.md](design.md)「待续」「待续怎么做」，接口见 [interfaces.md](interfaces.md) 的 inflow、context、surfacing 第 4 和第 7 步、`GET /memories`、`POST /memories/{id}/status`、export，表见 [schema.md](schema.md) 的 memories，prompt 见 [prompts/inflow.md](prompts/inflow.md)「待续」。
 
-- [ ] 迁移 005：`memories` 加 `status`、`status_as_of`、`resolved_at`、`resolved_note`，建 `memories(status)` 索引；`schema_version` 变 5
-- [ ] 配置：`todo.*`，`config.example.toml` 同步
-- [ ] inflow：prompt 加「还没完结的事」和 `todos`、`resolved`；`src/yuwen/prompts/inflow.md` 和文档同步
-- [ ] inflow：新待续每件写一条记忆并算向量；完结和不做了先写历史再改状态；只认列过的 id
-- [ ] context：「还没完结的事」那段，候选条件、条数、冷却、太久不带；带进去的 id 写进 `surfaced_memory_ids`；和翻阅结果去重
-- [ ] surfacing：递给他时带上状态；完结和不做了的稳定度乘 0.5
-- [ ] 目录：筛选“待续”；每条显示状态；点开能标完结、不做了、重新打开、标成待续、不是待办；`POST /memories/{id}/status`
-- [ ] Markdown 导出带上状态
-- [ ] 测试覆盖：小模型列出待续时每件一条记忆、状态和时间对；超过 3 件只取 3 件；`resolved` 里没列过的 id 被忽略、`status` 乱写的被忽略；完结写历史；`todos` 或 `resolved` 格式不对只丢那一个字段、随笔照常写；整个解析失败不记待续；「还没完结的事」不带原话在眼前的、刚用上不到 12 小时的、超过 30 天的；最多 3 条；带进去的被用上后 `last_recalled_at` 更新、下一轮不再带；同一条不在翻阅里重复；翻到完结的带“已经做完了”；完结后褪墨更快；`todo.enabled = false` 时 prompt 没有这两段、上下文没有这段；`POST /memories/{id}/status` 五种改法各自对、一样的不写历史、乱写 422、没登录进不去
+- [x] 迁移 005：`memories` 加 `status`、`status_as_of`、`resolved_at`、`resolved_note`，建 `memories(status)` 索引；`schema_version` 变 5
+- [x] 配置：`todo.*`，`config.example.toml` 同步
+- [x] inflow：prompt 加「还没完结的事」和 `todos`、`resolved`；`src/yuwen/prompts/inflow.md` 和文档同步
+- [x] inflow：新待续每件写一条记忆并算向量；完结和不做了先写历史再改状态；只认列过的 id
+- [x] context：「还没完结的事」那段，候选条件、条数、冷却、太久不带；带进去的 id 写进 `surfaced_memory_ids`；和翻阅结果去重
+- [x] surfacing：递给他时带上状态；完结和不做了的稳定度乘 0.5
+- [x] 目录：筛选“待续”；每条显示状态；点开能标完结、不做了、重新打开、标成待续、不是待办；`POST /memories/{id}/status`
+- [x] Markdown 导出带上状态
+- [x] 测试覆盖：小模型列出待续时每件一条记忆、状态和时间对；超过 3 件只取 3 件；`resolved` 里没列过的 id 被忽略、`status` 乱写的被忽略；完结写历史；`todos` 或 `resolved` 格式不对只丢那一个字段、随笔照常写；整个解析失败不记待续；「还没完结的事」不带原话在眼前的、刚用上不到 12 小时的、超过 30 天的；最多 3 条；带进去的被用上后 `last_recalled_at` 更新、下一轮不再带；同一条不在翻阅里重复；翻到完结的带“已经做完了”；完结后褪墨更快；`todo.enabled = false` 时 prompt 没有这两段、上下文没有这段；`POST /memories/{id}/status` 五种改法各自对、一样的不写历史、乱写 422、没登录进不去
 
 #### M2.3 之后
 

@@ -33,6 +33,7 @@
     <select id="filter">
       <option value="all">全部</option><option value="unclear">记不太清的</option>
       <option value="fading">快褪掉的</option><option value="sealed">封页的</option>
+      <option value="open">待续</option>
     </select>
     <input id="search" type="search" placeholder="搜一个词" aria-label="搜索目录">
     <button id="search-button" type="button">搜索</button>
@@ -42,7 +43,15 @@
   <button id="more" type="button" hidden>再看一些</button>
   <section id="detail" hidden>
     <h2>这一页</h2>
+    <p id="memory-status"></p>
     <p id="sources"></p>
+    <div class="actions" aria-label="待续状态">
+      <button type="button" data-status="done">标完结</button>
+      <button type="button" data-status="dropped">标不做了</button>
+      <button type="button" data-status="open">重新打开／标成待续</button>
+      <button type="button" data-status="null">这不是待办</button>
+      <label>备注（可不填）<input id="status-note" maxlength="100"></label>
+    </div>
     <form id="edit-form">
       <p>改记忆时，用名字称呼两个人，不要写“他”“她”。</p>
       <label>发生了什么<textarea id="summary" maxlength="300" required></textarea></label>
@@ -62,6 +71,11 @@
     let currentId = null;
     let currentSealed = false;
     let offset = 0;
+    const statusLabels = {open: '待续', done: '完结', dropped: '不做了'};
+    function statusText(item) {
+      if (!item.status) return '普通记忆';
+      return statusLabels[item.status] + (item.resolved_note ? `：${item.resolved_note}` : '');
+    }
     async function apiFetch(url, options) {
       const response = await fetch(url, options);
       if (response.status === 401) { location.assign('/login'); throw new Error('请先登录'); }
@@ -84,7 +98,7 @@
           const li = document.createElement('li');
           const button = document.createElement('button');
           const date = new Date(item.happened_at).toLocaleDateString('zh-CN');
-          button.textContent = `${date} · ${item.kind === 'handoff' ? '续写' : '随笔'} · ${item.summary}${item.quote ? ` · 原话「${item.quote}」` : ''} · ${item.emotion_text} · ${item.clear ? '记得清楚' : '记不太清'} · 被想起 ${item.recall_count} 次`;
+          button.textContent = `${date} · ${item.kind === 'handoff' ? '续写' : '随笔'} · ${statusText(item)} · ${item.summary}${item.quote ? ` · 原话「${item.quote}」` : ''} · ${item.emotion_text} · ${item.clear ? '记得清楚' : '记不太清'} · 被想起 ${item.recall_count} 次`;
           button.style.opacity = String(0.15 + 0.85 * item.retention);
           button.addEventListener('click', () => openDetail(item.id));
           li.append(button);
@@ -104,6 +118,8 @@
         document.getElementById('emotion').value = data.emotion_text;
         document.getElementById('reason').value = '';
         document.getElementById('seal').textContent = data.sealed ? '撕开' : '封页';
+        document.getElementById('memory-status').textContent = `状态：${statusText(data)}`;
+        document.getElementById('status-note').value = '';
         document.getElementById('sources').textContent = data.sources.length
           ? data.sources.map(source => `${source.role === 'user' ? '你' : '他'}：${source.content}`).join('\n')
           : '没有关联的原话';
@@ -140,6 +156,20 @@
         notice.textContent = currentSealed ? '已撕开' : '已封页';
       } catch (error) { showError(error); }
     });
+    for (const button of document.querySelectorAll('[data-status]')) {
+      button.addEventListener('click', async () => {
+        try {
+          const status = button.dataset.status === 'null' ? null : button.dataset.status;
+          await jsonResponse(`/memories/${currentId}/status`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({status, note: document.getElementById('status-note').value})
+          });
+          await loadList();
+          await openDetail(currentId);
+          notice.textContent = '状态已保存';
+        } catch (error) { showError(error); }
+      });
+    }
     document.getElementById('logout').addEventListener('click', async () => {
       await apiFetch('/logout', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
       location.assign('/login');

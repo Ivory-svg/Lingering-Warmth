@@ -12,7 +12,7 @@ from test_handoff import SequenceLLM
 from test_inflow import ReplyLLM
 from yuwen.api import create_app
 from yuwen.chat import ChatService
-from yuwen.config import DecayConfig, EmbeddingConfig, SurfacingConfig
+from yuwen.config import DecayConfig, EmbeddingConfig, SurfacingConfig, TodoConfig
 from yuwen.context import ContextBuilder
 from yuwen.handoff import HandoffService
 from yuwen.inflow import InflowService
@@ -118,6 +118,51 @@ def test_surfacing_keeps_old_summary_pronouns_verbatim(tmp_path: Path) -> None:
     assert result is not None
     assert "她说下雨了，他帮她打伞" in result
     assert "小雨" not in result
+
+
+def test_surfacing_describes_open_done_and_stale_todos(tmp_path: Path) -> None:
+    store, session_id = setup_store(tmp_path)
+    recent = store.add_memory(
+        kind="turn", happened_at="2026-10-07T00:00:00+00:00", summary="去看牙",
+        quote=None, emotion_text="平静", certainty=0.9, source_message_ids=[],
+        session_id=session_id, status="open", status_as_of="2026-10-07T00:00:00+00:00",
+    )
+    old = store.add_memory(
+        kind="turn", happened_at="2026-08-07T00:00:00+00:00", summary="去看牙",
+        quote=None, emotion_text="平静", certainty=0.9, source_message_ids=[],
+        session_id=session_id, status="open", status_as_of="2026-08-07T00:00:00+00:00",
+    )
+    finder = service(store)
+    recent_line = finder._line(store.get_memory(recent), NOW)
+    old_line = finder._line(store.get_memory(old), NOW)
+    assert "10月7日时还没完结" in recent_line
+    assert "这是很久以前的状态，现在可能变了" in old_line
+    store.resolve_todo_from_inflow(
+        recent, status="done", note="牙看完了", resolved_at=NOW.isoformat()
+    )
+    done = asyncio.run(finder.recall(session_id, "去看牙"))
+    assert done is not None and "已经做完了：牙看完了" in done
+
+
+def test_finished_todo_retention_decays_twice_as_fast(tmp_path: Path) -> None:
+    store, session_id = setup_store(tmp_path)
+    unfinished = store.add_memory(
+        kind="turn", happened_at="2026-10-07T00:00:00+00:00", summary="去看牙",
+        quote=None, emotion_text="平静", certainty=0.9, source_message_ids=[],
+        session_id=session_id, status="open", status_as_of="2026-10-07T00:00:00+00:00",
+    )
+    finished = store.add_memory(
+        kind="turn", happened_at="2026-10-07T00:00:00+00:00", summary="去看牙",
+        quote=None, emotion_text="平静", certainty=0.9, source_message_ids=[],
+        session_id=session_id, status="open", status_as_of="2026-10-07T00:00:00+00:00",
+    )
+    store.resolve_todo_from_inflow(
+        finished, status="done", note="看过了", resolved_at=NOW.isoformat()
+    )
+    finder = service(store)
+    open_retention = finder._retention(store.get_memory(unfinished), NOW)
+    done_retention = finder._retention(store.get_memory(finished), NOW)
+    assert abs(done_retention - open_retention ** 2) < 1e-10
 
 
 def test_literal_fallback_excludes_sealed_dream_and_visible_sources(tmp_path: Path) -> None:

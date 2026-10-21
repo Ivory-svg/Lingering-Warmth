@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from yuwen.config import TodoConfig
 from yuwen.store import Store
 from yuwen.worldbook import WorldbookReader
+
+
+@dataclass(frozen=True, slots=True)
+class TodoResult:
+    text: str
+    memory_ids: tuple[int, ...]
 
 
 class ContextBuilder:
@@ -19,6 +29,8 @@ class ContextBuilder:
         scan_depth: int = 4,
         entry_budget: int = 3000,
         corpus_sample: int = 8,
+        todo: TodoConfig = TodoConfig(),
+        clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ):
         self.store = store
         self.worldbook = worldbook
@@ -26,6 +38,56 @@ class ContextBuilder:
         self.scan_depth = scan_depth
         self.entry_budget = entry_budget
         self.corpus_sample = corpus_sample
+        self.todo = todo
+        self.clock = clock
+
+    def find_open_todos(self, session_id: int) -> TodoResult | None:
+        """挑出不在眼前、没过期、也没在冷却中的待续。"""
+
+        if not self.todo.enabled:
+            return None
+        session = self.store.get_session(session_id)
+        if session is None:
+            raise ValueError(f"找不到窗口：{session_id}")
+        visible_ids = {int(row["id"]) for row in self.store.list_messages(session_id)}
+        handoff_id = session["continues_handoff_id"]
+        if handoff_id is not None:
+            handoff = self.store.get_handoff(int(handoff_id))
+            if handoff is not None:
+                try:
+                    raw_ids = json.loads(handoff["raw_tail_message_ids"])
+                    if isinstance(raw_ids, list):
+                        visible_ids.update(int(item) for item in raw_ids if type(item) is int)
+                except (TypeError, ValueError):
+                    pass
+        now = self.clock()
+        selected: list[dict[str, Any]] = []
+        for memory in self.store.list_open_todos():
+            try:
+                as_of = datetime.fromisoformat(str(memory["status_as_of"]))
+                last = memory["last_recalled_at"]
+                source_ids = json.loads(memory["source_message_ids"])
+                if now - as_of > timedelta(days=self.todo.stale_days):
+                    continue
+                if last and now - datetime.fromisoformat(str(last)) < timedelta(hours=self.todo.cooldown_hours):
+                    continue
+                if visible_ids.intersection(source_ids):
+                    continue
+            except (TypeError, ValueError):
+                continue
+            selected.append(memory)
+            if len(selected) >= self.todo.max_in_context:
+                break
+        if not selected:
+            return None
+        lines = [
+            "这些是你们之间还没完结的事。不用每次都提；隔了一阵、话题合适的时候，可以自然问一句现在怎么样了。不要说成已经做完了，也不要假装知道结果。",
+            "",
+        ]
+        for memory in selected:
+            as_of = datetime.fromisoformat(str(memory["status_as_of"]))
+            lines.append(f"· {as_of.month}月{as_of.day}日说的：{memory['summary']}")
+        return TodoResult("\n".join(lines), tuple(int(row["id"]) for row in selected))
 
     def _voice_notes_message(self) -> dict[str, str] | None:
         notes = self.store.list_voice_notes(
@@ -79,7 +141,10 @@ class ContextBuilder:
             messages.append({"role": role, "content": content})
         return messages
 
-    def build(self, session_id: int, *, surfaced: str | None = None) -> list[dict[str, str]]:
+    def build(
+        self, session_id: int, *, surfaced: str | None = None,
+        todo_text: str | None = None,
+    ) -> list[dict[str, str]]:
         session = self.store.get_session(session_id)
         if session is None:
             raise ValueError(f"找不到窗口：{session_id}")
@@ -115,12 +180,14 @@ class ContextBuilder:
         voice_notes = self._voice_notes_message()
         if voice_notes is not None:
             messages.append(voice_notes)
-        if surfaced:
-            recall_message = {"role": "system", "content": surfaced}
-            if handoff_messages and handoff_messages[0]["role"] == "system":
-                handoff_messages.insert(1, recall_message)
-            else:
-                handoff_messages.insert(0, recall_message)
+        inserted = [
+            {"role": "system", "content": text}
+            for text in (surfaced, todo_text) if text
+        ]
+        if handoff_messages and handoff_messages[0]["role"] == "system":
+            handoff_messages[1:1] = inserted
+        else:
+            handoff_messages[0:0] = inserted
         messages.extend(handoff_messages)
         messages.extend(current_messages)
         return messages

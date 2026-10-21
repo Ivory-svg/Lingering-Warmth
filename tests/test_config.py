@@ -51,6 +51,11 @@ def test_load_config_applies_defaults_and_resolves_paths(tmp_path: Path) -> None
     assert config.surfacing.top_k == 4
     assert config.surfacing.min_similarity == 0.45
     assert config.decay.base_days == 7
+    assert config.todo.enabled
+    assert config.todo.max_in_context == 3
+    assert config.todo.cooldown_hours == 12
+    assert config.todo.stale_days == 30
+    assert config.todo.max_open_in_prompt == 10
     assert config.server.port == 8787
 
 
@@ -87,7 +92,9 @@ def test_load_config_accepts_new_options(tmp_path: Path) -> None:
         "api_key = 'embed-key'\nmodel = 'new-model'\nbatch_size = 8\n"
         "\n[surfacing]\nenabled = false\nquery_depth = 3\ntop_k = 5\n"
         "max_chars = 600\nmin_similarity = 0.6\nclear_threshold = 0.8\n"
-        "\n[decay]\nbase_days = 12.5\n",
+        "\n[decay]\nbase_days = 12.5\n"
+        "\n[todo]\nenabled = false\nmax_in_context = 2\n"
+        "cooldown_hours = 6\nstale_days = 20\nmax_open_in_prompt = 7\n",
     )
     config_file.write_text(
         config_file.read_text(encoding="utf-8").replace(
@@ -117,6 +124,11 @@ def test_load_config_accepts_new_options(tmp_path: Path) -> None:
     assert config.surfacing.min_similarity == 0.6
     assert config.surfacing.clear_threshold == 0.8
     assert config.decay.base_days == 12.5
+    assert not config.todo.enabled
+    assert config.todo.max_in_context == 2
+    assert config.todo.cooldown_hours == 6
+    assert config.todo.stale_days == 20
+    assert config.todo.max_open_in_prompt == 7
 
 
 @pytest.mark.parametrize(
@@ -134,6 +146,11 @@ def test_load_config_accepts_new_options(tmp_path: Path) -> None:
         ("surfacing", "enabled = 'yes'", "enabled"),
         ("decay", "base_days = 0", "base_days"),
         ("decay", "base_days = nan", "base_days"),
+        ("todo", "enabled = 'yes'", "enabled"),
+        ("todo", "max_in_context = 0", "max_in_context"),
+        ("todo", "cooldown_hours = -1", "cooldown_hours"),
+        ("todo", "stale_days = 0", "stale_days"),
+        ("todo", "max_open_in_prompt = 0", "max_open_in_prompt"),
     ],
 )
 def test_load_config_rejects_invalid_new_options(

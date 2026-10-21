@@ -43,6 +43,13 @@ clear_threshold = 0.7
 [decay]
 base_days = 7
 
+[todo]
+enabled = true
+max_in_context = 3
+cooldown_hours = 12
+stale_days = 30
+max_open_in_prompt = 10
+
 [gatekeeper]
 pre_send = true
 voice_notes_in_context = 10

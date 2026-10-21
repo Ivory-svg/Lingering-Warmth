@@ -84,7 +84,14 @@ class Store:
                     .joinpath("migrations", "004_auth_sessions.sql")
                     .read_text(encoding="utf-8")
                 )
-            elif version != "4":
+                version = "4"
+            if version == "4":
+                connection.executescript(
+                    files("yuwen")
+                    .joinpath("migrations", "005_todo_status.sql")
+                    .read_text(encoding="utf-8")
+                )
+            elif version != "5":
                 raise RuntimeError(f"不支持的数据库版本：{version}")
 
     def schema_version(self) -> str:
@@ -257,31 +264,26 @@ class Store:
         created_at: str | None = None,
         embedding: bytes | None = None,
         sealed: bool = False,
+        status: str | None = None,
+        status_as_of: str | None = None,
     ) -> int:
+        columns = (
+            "kind, created_at, happened_at, summary, quote, emotion_text, "
+            "valence, arousal, certainty, source_message_ids, session_id, embedding, sealed"
+        )
+        values: tuple[object, ...] = (
+            kind, created_at or now_iso(), happened_at, summary, quote, emotion_text,
+            valence, arousal, certainty, _json(list(source_message_ids)),
+            session_id, embedding, int(sealed),
+        )
+        if status is not None:
+            columns += ", status, status_as_of"
+            values += (status, status_as_of)
+        placeholders = ", ".join("?" for _ in values)
         with self._connect() as connection:
             cursor = connection.execute(
-                """
-                INSERT INTO memories (
-                    kind, created_at, happened_at, summary, quote, emotion_text,
-                    valence, arousal, certainty, source_message_ids, session_id,
-                    embedding, sealed
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    kind,
-                    created_at or now_iso(),
-                    happened_at,
-                    summary,
-                    quote,
-                    emotion_text,
-                    valence,
-                    arousal,
-                    certainty,
-                    _json(list(source_message_ids)),
-                    session_id,
-                    embedding,
-                    int(sealed),
-                ),
+                f"INSERT INTO memories ({columns}) VALUES ({placeholders})",  # noqa: S608
+                values,
             )
             return int(cursor.lastrowid)
 
@@ -299,6 +301,42 @@ class Store:
                 ORDER BY happened_at DESC, id DESC"""
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def list_open_todos(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT * FROM memories WHERE status = 'open' AND sealed = 0
+                ORDER BY status_as_of DESC, id DESC"""
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def resolve_todo_from_inflow(
+        self, memory_id: int, *, status: str, note: str, resolved_at: str
+    ) -> bool:
+        """只结案仍然待续的记忆，并保存修改前快照。"""
+
+        if status not in {"done", "dropped"}:
+            return False
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM memories WHERE id = ? AND status = 'open' AND sealed = 0",
+                (memory_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            snapshot = dict(row)
+            snapshot.pop("embedding", None)
+            reason = ("完结：" if status == "done" else "不做了：") + note
+            connection.execute(
+                "INSERT INTO memory_history (memory_id, snapshot, changed_at, reason) VALUES (?, ?, ?, ?)",
+                (memory_id, _json(snapshot), now_iso(), reason),
+            )
+            connection.execute(
+                """UPDATE memories SET status = ?, status_as_of = ?,
+                resolved_at = ?, resolved_note = ? WHERE id = ?""",
+                (status, resolved_at, resolved_at, note, memory_id),
+            )
+            return True
 
     def memory_ids_with_history(self) -> set[int]:
         with self._connect() as connection:
@@ -351,6 +389,47 @@ class Store:
             )
             connection.execute(
                 "UPDATE memories SET sealed = ? WHERE id = ?", (int(sealed), memory_id)
+            )
+            return True
+
+    def set_memory_status(
+        self, memory_id: int, status: str | None, *, note: str = "", changed_at: str | None = None
+    ) -> bool:
+        """原子地保存旧状态，再修改目录中的待续状态。"""
+
+        if status not in {None, "open", "done", "dropped"}:
+            raise ValueError("未知的待续状态")
+        when = changed_at or now_iso()
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+            if row is None or row["kind"] not in {"turn", "handoff"}:
+                raise KeyError(memory_id)
+            old_status = row["status"]
+            if old_status == status:
+                return False
+            if status == "done":
+                reason = "玩家标完结"
+            elif status == "dropped":
+                reason = "玩家标不做了"
+            elif status == "open":
+                reason = "玩家重新打开" if old_status in {"done", "dropped"} else "玩家标成待续"
+            else:
+                reason = "玩家说不是待办"
+            if note:
+                reason += f"：{note}"
+            snapshot = dict(row)
+            snapshot.pop("embedding", None)
+            connection.execute(
+                "INSERT INTO memory_history (memory_id, snapshot, changed_at, reason) VALUES (?, ?, ?, ?)",
+                (memory_id, _json(snapshot), when, reason),
+            )
+            as_of = when if status is not None else None
+            resolved_at = when if status in {"done", "dropped"} else None
+            resolved_note = note if status in {"done", "dropped"} else None
+            connection.execute(
+                """UPDATE memories SET status = ?, status_as_of = ?, resolved_at = ?,
+                resolved_note = ? WHERE id = ?""",
+                (status, as_of, resolved_at, resolved_note, memory_id),
             )
             return True
 

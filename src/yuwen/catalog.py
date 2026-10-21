@@ -31,10 +31,14 @@ class CatalogService:
             "last_recalled_at": memory["last_recalled_at"],
             "sealed": bool(memory["sealed"]),
             "edited": edited,
+            "status": memory["status"],
+            "status_as_of": memory["status_as_of"],
+            "resolved_at": memory["resolved_at"],
+            "resolved_note": memory["resolved_note"],
         }
 
     def list(self, *, filter: str = "all", q: str = "", offset: int = 0, limit: int = 50) -> dict[str, Any]:
-        if filter not in {"all", "unclear", "fading", "sealed"}:
+        if filter not in {"all", "unclear", "fading", "sealed", "open"}:
             raise ValueError("未知的目录筛选条件")
         if offset < 0 or not 1 <= limit <= 200:
             raise ValueError("目录分页参数无效")
@@ -50,6 +54,8 @@ class CatalogService:
             if filter == "unclear" and memory["certainty"] >= self.surfacing.config.clear_threshold:
                 continue
             if filter == "fading" and self.surfacing._retention(memory, now) >= 0.2:
+                continue
+            if filter == "open" and memory["status"] != "open":
                 continue
             if q and not any(q in str(memory[field] or "") for field in ("summary", "quote", "emotion_text")):
                 continue
@@ -114,3 +120,7 @@ class CatalogService:
     def seal(self, memory_id: int, sealed: bool) -> dict[str, Any]:
         self.store.set_memory_sealed(memory_id, sealed)
         return {"id": memory_id, "sealed": sealed}
+
+    def set_status(self, memory_id: int, status: str | None, note: str = "") -> dict[str, Any]:
+        self.store.set_memory_status(memory_id, status, note=note)
+        return self.detail(memory_id)
