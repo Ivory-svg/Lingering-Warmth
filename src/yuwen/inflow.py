@@ -149,12 +149,15 @@ class InflowService:
             and isinstance(item.get("quote"), str)
         ] if isinstance(todos, list) else []
         resolved = [
-            item for item in resolved
+            {
+                "id": item["id"],
+                "status": item["status"],
+                "note": item["note"].strip() if isinstance(item.get("note"), str) else "",
+            }
+            for item in resolved
             if isinstance(item, dict)
             and type(item.get("id")) is int
             and item.get("status") in {"done", "dropped"}
-            and isinstance(item.get("note"), str)
-            and bool(item["note"].strip())
         ] if isinstance(resolved, list) else []
         return {
             "summary": summary.strip(),
@@ -229,7 +232,7 @@ class InflowService:
             for item in memory.get("resolved", []):
                 if item["id"] in open_ids:
                     self.store.resolve_todo_from_inflow(
-                        item["id"], status=item["status"], note=item["note"].strip(),
+                        item["id"], status=item["status"], note=item["note"],
                         resolved_at=str(last_assistant["created_at"]),
                     )
             for item in memory.get("todos", []):

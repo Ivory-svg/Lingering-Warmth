@@ -326,7 +326,7 @@ class Store:
                 return False
             snapshot = dict(row)
             snapshot.pop("embedding", None)
-            reason = ("完结：" if status == "done" else "不做了：") + note
+            reason = ("完结" if status == "done" else "不做了") + (f"：{note}" if note else "")
             connection.execute(
                 "INSERT INTO memory_history (memory_id, snapshot, changed_at, reason) VALUES (?, ?, ?, ?)",
                 (memory_id, _json(snapshot), now_iso(), reason),
@@ -334,7 +334,7 @@ class Store:
             connection.execute(
                 """UPDATE memories SET status = ?, status_as_of = ?,
                 resolved_at = ?, resolved_note = ? WHERE id = ?""",
-                (status, resolved_at, resolved_at, note, memory_id),
+                (status, resolved_at, resolved_at, note or None, memory_id),
             )
             return True
 

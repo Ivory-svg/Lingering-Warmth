@@ -159,6 +159,29 @@ def test_inflow_resolves_only_listed_open_todos_and_saves_history(tmp_path: Path
     assert json.loads(history[0]["snapshot"])["status"] == "open"
 
 
+def test_inflow_resolves_todo_without_note(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    open_id = store.add_memory(
+        kind="turn", happened_at="2026-10-19T10:00:00+08:00", summary="阿栀要看牙",
+        emotion_text="平静", certainty=0.9, source_message_ids=[], session_id=session_id,
+        status="open", status_as_of="2026-10-19T10:00:00+08:00",
+    )
+    user_id = store.add_message(session_id, "user", "牙看完了")
+    assistant_id = store.add_message(session_id, "assistant", "那就好。")
+    llm = ReplyLLM(json.dumps({
+        "summary": "阿栀看完牙", "emotion_text": "放松", "certainty": 0.9,
+        "resolved": [{"id": open_id, "status": "done", "note": ""}],
+    }, ensure_ascii=False))
+
+    asyncio.run(InflowService(store, llm).process_turn(user_id, assistant_id))
+
+    row = store.get_memory(open_id)
+    assert row["status"] == "done" and row["resolved_note"] is None
+    assert store.list_memory_history(open_id)[0]["reason"] == "完结"
+
+
 @pytest.mark.parametrize("broken_field", ["todos", "resolved"])
 def test_inflow_bad_todo_field_does_not_discard_other_field_or_summary(
     tmp_path: Path, broken_field: str
