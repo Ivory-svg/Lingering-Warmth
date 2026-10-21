@@ -40,7 +40,7 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | role | TEXT NOT NULL | `user` / `assistant` / `event` |
 | content | TEXT NOT NULL | 原文。被校对改写时，这里存实际发出的版本 |
 | created_at | TEXT NOT NULL | |
-| meta | TEXT | JSON，可选。如 `{"ooc_rewritten": true, "voice_note_id": 3}`；第二档起，回复上还有 `surfaced_memory_ids`：这一轮递给他的记忆 id |
+| meta | TEXT | JSON，可选。如 `{"ooc_rewritten": true, "voice_note_id": 3}`；第二档起，回复上还有 `surfaced_memory_ids`：这一轮递给他的记忆 id；M3.1 起，来信是 `role = assistant` 的消息，meta 里有 `{"letter": true, "wake_log_id": 5}` |
 
 `event` 留给第二档以后的感应事件（戳一下、摸头），第一档不用。
 
@@ -108,6 +108,21 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 
 `GET /export` 不导出这张表。
 
+### wake_log：来信记录（迁移 006）
+
+每次“看一眼要不要写”留一行，写了没写都留。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | INTEGER PK | |
+| checked_at | TEXT NOT NULL | 看的时间 |
+| decided | TEXT NOT NULL | `send` 写了 / `skip` 他决定不写 / `blocked` 规矩挡下，没问模型 |
+| reason | TEXT NOT NULL | 为什么。`blocked` 写是哪条规矩，例如“不在白天”“上一封还没回” |
+| message_id | INTEGER | 写了的话，→ messages.id |
+| notified | INTEGER NOT NULL DEFAULT 0 | 1 = 通知发出去了（对方回 2xx） |
+
+`GET /export` 导出这张表。
+
 ### handoffs：续写（交接）
 
 | 字段 | 类型 | 说明 |
@@ -152,5 +167,4 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | anniversaries | 纪年 | date(MM-DD 或完整日期), title, source(`manual`/`keepsake`), memory_id |
 | dream_books | 留白合集，按月一本 | month(YYYY-MM), created_at, updated_at |
 | dreams | 留白合集里的一个梦（追加，不单独翻阅） | book_id, created_at, based_on_memory_id, content, used_in_wake |
-| wake_log | 来信记录 | checked_at, decided(`send`/`skip`), reason, message_id |
 | player_days | 玩家的日子（经期等，默认关闭） | date, kind, note, source |

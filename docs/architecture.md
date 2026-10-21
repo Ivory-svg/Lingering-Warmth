@@ -81,6 +81,20 @@ chat.handle_message
 inflow：把这一轮（玩家原话 + 回复）记成一条随笔，标情绪和确定度
 ```
 
+## 来信的流程（M3.1）
+
+```
+后台任务按随机间隔醒来
+  1. 规矩：白天？刚聊过？今天写够了？上一封没回？ → 挡下就记一行，回去睡
+  2. context：和平时一样拼上下文，最后加 prompts/wake.md
+  3. llm（对话模型）：决定写不写，写什么
+  4. gatekeeper（打开时）：校对
+  5. store：信存成这一卷的一条他的话（meta.letter），wake_log 记一行
+  6. 通知：往 wake.notify_url 发一下（失败不影响）
+  7. 排下一次
+网页开着时每分钟 GET /messages?after_id=… 拿新的信
+```
+
 ## 续写（交接）的流程
 
 ```
@@ -148,6 +162,15 @@ api → export → store
 | `todo.cooldown_hours` | 12 | 他问过一件以后，歇几个小时再带 |
 | `todo.stale_days` | 30 | 超过几天的待续不再每轮带，翻到时说“这是很久以前的状态” |
 | `todo.max_open_in_prompt` | 10 | 写随笔时给小模型看几件还没完结的事 |
+| `wake.enabled` | true | 来信：他会不会先来找你。关掉就不看、不写、不多花钱 |
+| `wake.timezone` | 空 | 判断白天、今天用的时区，例如 `Asia/Shanghai`；空 = 服务器本地时间 |
+| `wake.active_hours` | `09:00-23:00` | 只在这段时间里看要不要写 |
+| `wake.min_interval_minutes` / `wake.max_interval_minutes` | 40 / 120 | 多久看一眼，在这两个数之间随机 |
+| `wake.min_silence_minutes` | 60 | 最后一句话不到这么久，不写 |
+| `wake.max_per_day` | 3 | 一天最多写几封 |
+| `wake.max_unanswered` | 2 | 连着几封没回，就不再写，等玩家说话 |
+| `wake.notify_url` | 空 | 写了信往哪里发通知；空 = 不发。填 ntfy 频道地址就能推到手机 |
+| `wake.notify_format` | `text` | `text` 发纯文本（ntfy 用）；`json` 发详细内容（自己的程序用） |
 | `gatekeeper.pre_send` | true | 发出前是否自查 |
 | `gatekeeper.voice_notes_in_context` | 10 | 拼上下文时带几条勘误 |
 | `storage.db_path` | `data/yuwen.db` | |

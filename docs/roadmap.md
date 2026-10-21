@@ -123,7 +123,7 @@
 - [x] 聊天页顶上加“目录”入口
 - [x] 测试覆盖：四种筛选各自对；搜索命中 summary、quote、emotion_text；梦不进目录；`retention` 和翻阅算出来的一样；改正写历史、`certainty` 变 1.0、向量被清空；改成一样的不写历史；超长 422；封页后翻阅找不到、撕开后又能找到；封页和撕开都写历史；重复封页不报错；没有任何删除
 
-#### M2.3 · 待续（接着做）
+#### M2.3 · 待续
 
 见 [design.md](design.md)「待续」「待续怎么做」，接口见 [interfaces.md](interfaces.md) 的 inflow、context、surfacing 第 4 和第 7 步、`GET /memories`、`POST /memories/{id}/status`、export，表见 [schema.md](schema.md) 的 memories，prompt 见 [prompts/inflow.md](prompts/inflow.md)「待续」。
 
@@ -146,15 +146,35 @@
 
 ### M3 · 第三档：他会想你
 
+#### M3.1 · 来信（接着做）
+
+先于 M2.3 之后那几项做。见 [design.md](design.md)「来信」「来信怎么做」，接口见 [interfaces.md](interfaces.md) 的 wake、`GET /messages`，表见 [schema.md](schema.md) 的 wake_log 和 messages.meta，prompt 见 [prompts/wake.md](prompts/wake.md)。
+
+- [ ] 迁移 006：`wake_log`；`schema_version` 变 6
+- [ ] 配置：`wake.*`，`config.example.toml` 同步；`active_hours` 格式不对、`min_interval_minutes > max_interval_minutes`、时区名不认识，都不启动并说清楚
+- [ ] worldbook：读 `daily.md`，给出“日常此刻”
+- [ ] wake：后台任务、排时间、玩家说话后重排；五条规矩；问模型、解析、写信、记录；和 `POST /chat` 共用一把锁
+- [ ] `src/yuwen/prompts/wake.md` 和 `docs/prompts/wake.md` 同步
+- [ ] 通知：`text` 和 `json` 两种；失败只记日志
+- [ ] `GET /messages` 加 `letter` 和 `after_id`
+- [ ] 网页：开着时每分钟拿新的信；信带“他先写的”小标记和时间；页面在后台时标签页标题带数字，回到页面就清掉
+- [ ] inflow：这批之前的信写进对话原文
+- [ ] 导出：JSON 带 `wake_log`；Markdown 里信前面标“他先写的”
+- [ ] README 的费用说明（已写，核对一遍）
+- [ ] 测试覆盖：五条规矩各自挡下且不调模型、记 `blocked`；白天边界（09:00 算、23:00 不算）；按 `wake.timezone` 算今天；玩家说话后重排；`send=false` 记 `skip` 不写信；JSON 坏了、`message` 为空都记 `skip`；写信存成 `letter` 消息、wake_log 有 `message_id`；校对改写信；通知 `text` 的正文和 `Title` 头、`json` 的字段对；通知失败信照样在、`notified = 0`；写信时 `POST /chat` 等锁；`after_id` 只返回新的；随笔带上之前的信；`wake.enabled = false` 时任务不起；日常此刻取对行、早于第一行取最后一行、没有就整行去掉
+
+
 - [ ] 修订：改写记忆，保留历史；校对读修订
 - [ ] 留白：定时任务；写进按月的梦的合集，不单独开条目，不参与普通翻阅，和上一个梦几乎一样的不记
-- [ ] 来信：定时看一眼，自己决定写不写；写了就对外通知（webhook），给声音、形象、报备那个项目用
+- [ ] 来信：见下面 M3.1
 - [ ] 纪年
 
 ## 还没想清楚的
 
 - [ ] 续写带多少条原话：先默认 20，等实际用起来再调
 - [ ] 情绪怎么标：参考实现先文字 + 数值都存，以后看哪个没用上再删
-- [ ] 来信多久看一次：给别人的默认值，以及要不要让玩家自己调
+- [ ] 来信多久看一次：先默认 40–120 分钟随机，等实际用起来再调
+- [ ] 玩家自己的作息（几点上班、几点睡）放在哪里，来信怎么用它
+- [ ] 玩家一直没回的信，要不要单独记成随笔
 - [ ] 本仓库自己用什么协议发布
 - [x] 放到服务器上给别人用之前，要先加登录：排进了 M2.2

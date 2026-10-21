@@ -55,6 +55,8 @@
 
 - `ooc`：这条回复有过勘误（校对改写或玩家标记）时才有，取最新一条；否则为 null
 - `role = event` 的消息不返回
+- M3.1 起，每条多一个 `letter`：来信为 true，其余为 false
+- M3.1 起，可带参数 `after_id`：只返回 id 比它大的消息，网页用它每分钟看一次有没有新的信
 - 续写分隔线暂不需要在刷新后还原
 
 ### `POST /ooc/flag`
@@ -558,6 +560,62 @@ M2.3 起：`status` 是 `done` 或 `dropped` 的，稳定度再乘 0.5。目录�
 
 **降级**：embedding 请求失败、numpy 出错，就退回字面匹配；字面匹配也出错，这一轮不翻阅。翻阅坏了不能让他说不出话。
 
+### wake（来信，原名唤醒，M3.1）
+
+后台任务，跟着服务一起启动、一起停。
+
+**排时间**
+- 服务启动时，下一次看是现在之后随机 `wake.min_interval_minutes` 到 `wake.max_interval_minutes` 分钟（默认 40–120）
+- 玩家每发一句话，从这句话的时间重新排一次
+- 每看完一次（不管写没写），从现在重新排一次
+- 随机数和时钟都能在测试里换掉
+
+**看一眼**：按顺序，前面的规矩挡下就不往后走，记一行 `decided = blocked`，不调模型。
+
+1. `wake.enabled = false`：整个任务不启动
+2. 当地时间（`wake.timezone`，空 = 服务器本地）不在 `wake.active_hours` 里（默认 `09:00-23:00`，结束时间不含）：“不在白天”
+3. 当前这一卷最后一条消息（任何角色）不到 `wake.min_silence_minutes` 分钟（默认 60）：“刚聊过”
+4. 当地今天已经写过 `wake.max_per_day` 封（默认 3）：“今天写够了”
+5. 玩家最后一句话之后，已经连着写了 `wake.max_unanswered` 封（默认 2）：“上一封还没回”
+6. 当前没有任何一卷，或者这一卷还没有玩家说过话：“还没开始聊”
+
+**问模型**
+- 上下文：`context.build`，和玩家刚说话时一样（翻阅拿这一卷最后 `surfacing.query_depth` 条原话去找；还没完结的事照常带）。最后再加一条 system，用 [prompts/wake.md](prompts/wake.md)
+- 用对话模型（不是小模型），要求只输出 JSON：`{"send": true, "reason": "...", "message": "..."}`
+- 解析失败、`send` 不是布尔值、`send = true` 但 `message` 去掉空白后是空的：都记 `decided = skip`，`reason` 写“没想好”，不写信。不重试
+- `send = false`：记 `skip`，`reason` 用模型给的
+
+**写信**
+- 校对打开时（`gatekeeper.pre_send`），信和普通回复一样先过一遍；改写了照常存勘误
+- 存成这一卷里一条 `role = assistant` 的消息，`meta` 有 `letter: true`、`wake_log_id`、`surfaced_memory_ids`（这次递进去的往事和待续）
+- 记 `decided = send` 和 `message_id`
+- 然后发通知（见下）。通知失败只记日志、`notified` 留 0，不影响信本身
+- 写信和 `POST /chat` 共用一把锁：正在回玩家时不写信，正在写信时玩家的话等它写完
+
+**通知**：`wake.notify_url` 为空就不发。`wake.notify_format`：
+
+- `text`（默认）：`POST` 纯文本，正文就是信的内容，加请求头 `Title: {character.name}`。直接填 ntfy 的频道地址（例如 `https://ntfy.sh/一个只有你知道的名字`）就能推到手机
+- `json`：`POST` JSON，给自己写的程序用：
+
+```json
+{
+  "type": "letter",
+  "message_id": 412,
+  "character": "沈砚",
+  "content": "下雨了，记得带伞。",
+  "reason": "阿栀说今天要出门，外面下雨了",
+  "sent_at": "2026-10-21T15:40:00+08:00",
+  "daily_now": "下午修表，客人少时翻速写本"
+}
+```
+
+- 超时 5 秒，不重试。只有 `llm.py` 发网络请求的规矩照旧：通知请求也放进 `llm.py`（或同一层的一个小客户端），不在 wake 里直接发
+- `notify_url` 只在配置里，不进导出、不进日志
+
+**日常此刻**：读扉页的 `daily.md`，找 `- HH:MM 内容` 这样的行，取时间不晚于现在的最后一行；现在比第一行还早，就取最后一行（前一天的最后一件事）。没有这个文件、没有一行带时间，就是空。
+
+**随笔里的信**：写随笔时，这批轮次的对话前面，加上这批第一句玩家原话之前、上一批之后的信，写成 `{角色名}（先写来的信）：……`。玩家一直没回的信，现在不单独记成随笔，留在原话里。
+
 ### export
 
 读所有表，按上面格式输出。不做任何过滤，封页的也导出（那是玩家自己的东西）。
@@ -601,5 +659,3 @@ M2.3 起：`status` 是 `done` 或 `dropped` 的，稳定度再乘 0.5。目录�
 | `POST /events` | 感应事件（戳一下、摸头），写成 `role=event` 的消息 | 二 |
 | `GET /diary?month=2026-10` / `POST /diary/{id}/reply` | 折角日历与回复 | 二 |
 | 对话里说“这个忘掉吧” | 认出来以后，走和 `POST /memories/{id}/seal` 同一套封页逻辑 | 二 |
-| `GET /wake/pending` | 前端轮询来信消息（或改成 WebSocket 推送） | 三 |
-| 来信事件对外通知 | 他主动说了一句话时，把内容、原因和“日常”里此刻在做什么推给外部程序（webhook），给声音、形象、报备那个项目用 | 三 |
