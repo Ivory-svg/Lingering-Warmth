@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 import logging
 from pathlib import Path
 import random
@@ -34,6 +35,8 @@ class WorldbookReader:
         self._core: str = ""
         self._entries: tuple[WorldbookEntry, ...] = ()
         self._corpus: tuple[str, ...] = ()
+        self._daily_signature: tuple[int, int] | None = None
+        self._daily_lines: tuple[tuple[int, str], ...] = ()
 
     def _paths(self) -> tuple[Path, list[Path], Path | None, list[Path], bool]:
         directory = self.config.worldbook_dir
@@ -180,3 +183,35 @@ class WorldbookReader:
         if count <= 0:
             return []
         return random.sample(self._corpus, min(count, len(self._corpus)))
+
+    def daily_now(self, local_time: datetime) -> str:
+        """取日常里不晚于当地时间的最后一件事。"""
+
+        path = self.config.worldbook_dir / "daily.md"
+        if not path.is_file():
+            self._daily_signature = None
+            self._daily_lines = ()
+            return ""
+        try:
+            stat = path.stat()
+            signature = (stat.st_mtime_ns, stat.st_size)
+            if signature != self._daily_signature:
+                parsed: list[tuple[int, str]] = []
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    match = re.fullmatch(r"\s*-\s*(\d{2}):(\d{2})\s+(.+?)\s*", line)
+                    if not match:
+                        continue
+                    hour, minute = int(match[1]), int(match[2])
+                    if hour < 24 and minute < 60:
+                        parsed.append((hour * 60 + minute, match[3]))
+                self._daily_lines = tuple(sorted(parsed, key=lambda item: item[0]))
+                self._daily_signature = signature
+        except OSError as exc:
+            raise WorldbookError(f"读取扉页日常失败：{exc}") from exc
+        if not self._daily_lines:
+            return ""
+        minutes = local_time.hour * 60 + local_time.minute
+        for at, content in reversed(self._daily_lines):
+            if at <= minutes:
+                return content
+        return self._daily_lines[-1][1]

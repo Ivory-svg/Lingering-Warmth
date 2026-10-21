@@ -58,6 +58,34 @@ def test_inflow_writes_valid_model_result(tmp_path: Path) -> None:
     assert llm.options == [(True, True)]
 
 
+def test_inflow_includes_prior_letters_once_with_next_player_turn(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    session_id = store.create_session()
+    store.add_wake_letter(
+        session_id, "第一封信", "想念", checked_at="2026-10-21T10:00:00+08:00",
+        surfaced_memory_ids=[],
+    )
+    store.add_wake_letter(
+        session_id, "第二封信", "想念", checked_at="2026-10-21T11:00:00+08:00",
+        surfaced_memory_ids=[],
+    )
+    user_id = store.add_message(session_id, "user", "看到你的信了")
+    assistant_id = store.add_message(session_id, "assistant", "嗯。")
+    llm = ReplyLLM('{"summary":"回了信","emotion_text":"开心","certainty":0.9}')
+    inflow = InflowService(store, llm, character_name="沈砚")
+
+    asyncio.run(inflow.process_turn(user_id, assistant_id))
+
+    prompt = llm.messages[0][0]["content"]
+    assert prompt.index("沈砚（先写来的信）：第一封信") < prompt.index("沈砚（先写来的信）：第二封信")
+    assert prompt.index("第二封信") < prompt.index("对方：看到你的信了")
+    next_user = store.add_message(session_id, "user", "明天见")
+    next_assistant = store.add_message(session_id, "assistant", "好。")
+    asyncio.run(inflow.process_turn(next_user, next_assistant))
+    assert "先写来的信" not in llm.messages[1][0]["content"]
+
+
 def test_inflow_garbled_result_uses_fallback_without_raising(tmp_path: Path) -> None:
     store = Store(tmp_path / "test.db")
     store.initialize()

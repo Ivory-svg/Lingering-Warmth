@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Protocol
 
@@ -50,6 +52,8 @@ class ChatService:
         handoff: HandoffService | None = None,
         gatekeeper: GatekeeperService | None = None,
         surfacing: SurfacingService | None = None,
+        turn_lock: asyncio.Lock | None = None,
+        on_player_message: Callable[[], None] | None = None,
     ):
         self.store = store
         self.context = context
@@ -57,15 +61,24 @@ class ChatService:
         self.handoff = handoff
         self.gatekeeper = gatekeeper
         self.surfacing = surfacing
+        self.turn_lock = turn_lock or asyncio.Lock()
+        self.on_player_message = on_player_message
 
     async def handle_message(self, content: str) -> ChatResult:
         """保存原话、生成并保存回复。"""
+
+        async with self.turn_lock:
+            return await self._handle_message(content)
+
+    async def _handle_message(self, content: str) -> ChatResult:
 
         if not content.strip():
             raise ValueError("消息内容不能为空")
         session = self.store.get_or_create_active_session()
         session_id = int(session["id"])
         user_message_id = self.store.add_message(session_id, "user", content)
+        if self.on_player_message is not None:
+            self.on_player_message()
         first_todos = self.context.find_open_todos(session_id)
         first_recall = (
             await self.surfacing.find(

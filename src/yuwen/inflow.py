@@ -68,11 +68,14 @@ class InflowService:
         surfaced: dict[int, str],
         open_todos: list[dict[str, Any]] | None = None,
     ) -> str:
+        letter_lines = self._letters_before(turns)
         dialogue = "\n".join(
             f"{self.player_name}：{user['content']}\n"
             f"{self.character_name}：{assistant['content']}"
             for user, assistant in turns
         )
+        if letter_lines:
+            dialogue = "\n".join([*letter_lines, dialogue])
         template = self._template
         open_todos = open_todos or []
         if self.todo.enabled and open_todos:
@@ -123,6 +126,42 @@ class InflowService:
             .replace("{玩家}", self.player_name)
             .replace("{角色名}", self.character_name)
         )
+
+    def _letters_before(
+        self, turns: list[tuple[dict[str, Any], dict[str, Any]]]
+    ) -> list[str]:
+        """只带上一批随笔之后、这批第一句玩家原话之前的来信。"""
+
+        first_user_id = int(turns[0][0]["id"])
+        session_id = int(turns[0][1]["session_id"])
+        previous_end = 0
+        for memory in self.store.list_table("memories"):
+            if memory["kind"] != "turn" or int(memory["session_id"]) != session_id:
+                continue
+            try:
+                ids = json.loads(memory["source_message_ids"])
+            except (TypeError, ValueError):
+                continue
+            if isinstance(ids, list):
+                previous_end = max([
+                    previous_end,
+                    *(item for item in ids if type(item) is int and item < first_user_id),
+                ])
+        lines = []
+        for message in self.store.list_messages(session_id):
+            if not previous_end < int(message["id"]) < first_user_id:
+                continue
+            if message["role"] != "assistant":
+                continue
+            try:
+                meta = json.loads(message["meta"]) if message["meta"] else {}
+            except (TypeError, ValueError):
+                continue
+            if isinstance(meta, dict) and meta.get("letter") is True:
+                lines.append(
+                    f"{self.character_name}（先写来的信）：{self.store.visible_message_content(message)}"
+                )
+        return lines
 
     @staticmethod
     def _parse(text: str, *, todo_enabled: bool = True, allow_resolved: bool = True) -> dict[str, object]:

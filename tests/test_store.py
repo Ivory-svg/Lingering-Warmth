@@ -16,7 +16,7 @@ def test_initialize_is_repeatable_and_sets_schema_version(tmp_path: Path) -> Non
     store = make_store(tmp_path)
     store.initialize()
 
-    assert store.schema_version() == "5"
+    assert store.schema_version() == "6"
     assert store.path.exists()
 
 
@@ -40,7 +40,7 @@ def test_initialize_migrates_existing_v1_database_without_losing_notes(tmp_path:
     store.initialize()
     store.initialize()
 
-    assert store.schema_version() == "5"
+    assert store.schema_version() == "6"
     assert store.get_message(message_id)["content"] == "原回复"  # type: ignore[index]
     note = store.list_voice_notes()[0]
     assert note["id"] == note_id
@@ -72,7 +72,7 @@ def test_initialize_migrates_v2_memories_without_losing_content(tmp_path: Path) 
     store.initialize()
 
     memory = store.get_memory(memory_id)
-    assert store.schema_version() == "5"
+    assert store.schema_version() == "6"
     assert memory["summary"] == "原有的记忆"  # type: ignore[index]
     assert memory["embedding"] == b"old-vector"  # type: ignore[index]
     assert memory["embedding_model"] is None  # type: ignore[index]
@@ -98,7 +98,7 @@ def test_initialize_migrates_v3_auth_sessions_without_losing_memories(tmp_path: 
     store.initialize()
     store.initialize()
 
-    assert store.schema_version() == "5"
+    assert store.schema_version() == "6"
     assert store.get_memory(memory_id)["summary"] == "旧记忆"  # type: ignore[index]
     with sqlite3.connect(path) as connection:
         assert connection.execute(
@@ -127,7 +127,7 @@ def test_initialize_migrates_v4_todo_fields_and_index(tmp_path: Path) -> None:
     store.initialize()
 
     memory = store.get_memory(memory_id)
-    assert store.schema_version() == "5"
+    assert store.schema_version() == "6"
     assert memory["summary"] == "已有记忆"  # type: ignore[index]
     assert all(memory[column] is None for column in (
         "status", "status_as_of", "resolved_at", "resolved_note"
@@ -135,6 +135,31 @@ def test_initialize_migrates_v4_todo_fields_and_index(tmp_path: Path) -> None:
     with sqlite3.connect(path) as connection:
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'memories_status_idx'"
+        ).fetchone() is not None
+
+
+def test_initialize_migrates_v5_wake_log(tmp_path: Path) -> None:
+    path = tmp_path / "v5.db"
+    with sqlite3.connect(path) as connection:
+        for migration in (
+            "001_initial.sql", "002_voice_notes_overturn.sql", "003_memory_recall.sql",
+            "004_auth_sessions.sql", "005_todo_status.sql",
+        ):
+            connection.executescript(
+                files("yuwen").joinpath("migrations", migration).read_text(encoding="utf-8")
+            )
+    store = Store(path)
+    session_id = store.create_session()
+    message_id = store.add_message(session_id, "user", "旧对话")
+
+    store.initialize()
+    store.initialize()
+
+    assert store.schema_version() == "6"
+    assert store.get_message(message_id)["content"] == "旧对话"
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'wake_log'"
         ).fetchone() is not None
 
 

@@ -6,6 +6,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from contextlib import suppress
 from importlib.resources import files
+import json
 import os
 from typing import Literal
 
@@ -24,9 +25,10 @@ from yuwen.export import build_export, build_markdown_export
 from yuwen.gatekeeper import GatekeeperService
 from yuwen.handoff import HandoffService
 from yuwen.inflow import InflowService
-from yuwen.llm import EmbeddingClient, LLMClient
+from yuwen.llm import EmbeddingClient, LLMClient, WakeNotifier
 from yuwen.store import Store
 from yuwen.surfacing import SurfacingService
+from yuwen.wake import WakeService
 from yuwen.worldbook import WorldbookReader
 
 
@@ -59,6 +61,7 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     created_at: str
+    letter: bool = False
     ooc: MessageOOC | None = None
 
 
@@ -131,6 +134,7 @@ def create_app(
         embedding_client or EmbeddingClient(config.embedding)
         if config.embedding.base_url else None
     )
+    wake_notifier = WakeNotifier(config.wake) if config.wake.notify_url else None
     embedder = (
         MemoryEmbedder(database, vector_client, config.embedding)
         if vector_client is not None else None
@@ -180,6 +184,7 @@ def create_app(
         todo=config.todo,
         client=vector_client,
     )
+    turn_lock = asyncio.Lock()
     chat_service = ChatService(
         database,
         context,
@@ -187,7 +192,17 @@ def create_app(
         handoff=handoff_service,
         gatekeeper=gatekeeper_service if config.gatekeeper.pre_send else None,
         surfacing=surfacing_service,
+        turn_lock=turn_lock,
     )
+    wake_service = WakeService(
+        database, context, books, model, config=config.wake,
+        player_name=config.character.player_name, character_name=config.character.name,
+        surfacing=surfacing_service,
+        gatekeeper=gatekeeper_service if config.gatekeeper.pre_send else None,
+        turn_lock=turn_lock,
+        notify=wake_notifier.send if wake_notifier else None,
+    )
+    chat_service.on_player_message = wake_service.reschedule
     auth_service = AuthService(database, config.auth)
     catalog_service = CatalogService(database, surfacing_service)
 
@@ -197,10 +212,15 @@ def create_app(
         database.initialize()
         books.core()
         books.warn_oversized_entries(config.worldbook.entry_budget)
+        active_turn_lock = asyncio.Lock()
+        chat_service.turn_lock = active_turn_lock
+        wake_service.turn_lock = active_turn_lock
         backfill_task = asyncio.create_task(embedder.backfill()) if embedder else None
+        wake_service.start()
         try:
             yield
         finally:
+            await wake_service.stop()
             if backfill_task is not None:
                 backfill_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -209,6 +229,8 @@ def create_app(
                 await vector_client.aclose()
             if isinstance(model, LLMClient):
                 await model.aclose()
+            if wake_notifier is not None:
+                await wake_notifier.aclose()
 
     app = FastAPI(title="余温", version="0.1.0", lifespan=lifespan)
     app.state.config = config
@@ -221,6 +243,7 @@ def create_app(
     app.state.surfacing_service = surfacing_service
     app.state.auth_service = auth_service
     app.state.catalog_service = catalog_service
+    app.state.wake_service = wake_service
 
     @app.middleware("http")
     async def require_login(request: Request, call_next):
@@ -358,7 +381,7 @@ def create_app(
         return result.as_dict()
 
     @app.get("/messages", response_model=list[MessageResponse])
-    async def get_messages() -> list[dict[str, object]]:
+    async def get_messages(after_id: int = Query(0, ge=0)) -> list[dict[str, object]]:
         session = database.get_active_session()
         if session is None:
             return []
@@ -370,8 +393,12 @@ def create_app(
 
         result: list[dict[str, object]] = []
         for message in database.list_messages(int(session["id"])):
-            if message["role"] == "event":
+            if message["role"] == "event" or int(message["id"]) <= after_id:
                 continue
+            try:
+                meta = json.loads(message["meta"]) if message["meta"] else {}
+            except (TypeError, ValueError):
+                meta = {}
             restored_note = database.restored_voice_note(message)
             note = notes_by_message.get(int(message["id"]))
             ooc = None
@@ -389,6 +416,7 @@ def create_app(
                     "role": message["role"],
                     "content": restored_note["original"] if restored_note else message["content"],
                     "created_at": message["created_at"],
+                    "letter": isinstance(meta, dict) and meta.get("letter") is True,
                     "ooc": ooc,
                 }
             )
