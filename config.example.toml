@@ -50,6 +50,13 @@ cooldown_hours = 12
 stale_days = 30
 max_open_in_prompt = 10
 
+[forget]
+enabled = true
+recent_memories = 5
+
+[anniversary]
+enabled = true
+
 [wake]
 enabled = true
 # 留空按服务器本地时间；也可填 Asia/Shanghai 等时区名。

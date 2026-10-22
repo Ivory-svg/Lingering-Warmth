@@ -141,14 +141,14 @@
 
 M3.1 之后做，纪年属于第三档，和封页一起做是因为都搭在随笔上。见 [design.md](design.md)「对话里封页怎么做」「纪年怎么做」，接口见 [interfaces.md](interfaces.md) 的 inflow「对话里封页」「纪年」「今天是什么日子」、context 第 10 条、wake、HTTP「纪年」，表见 [schema.md](schema.md) 的 anniversaries，prompt 见 [prompts/inflow.md](prompts/inflow.md)、[prompts/wake.md](prompts/wake.md)。
 
-- [ ] 迁移 007：`anniversaries`；`schema_version` 变 7
-- [ ] 配置：`forget.*`、`anniversary.*`，`config.example.toml` 同步
-- [ ] inflow：「可以封起来的往事」和 `forget`；`this_batch` 写封着的随笔、不记待续；`ids` 只认列过的；先计想起再封；`src/yuwen/prompts/inflow.md` 同步
-- [ ] inflow：`anniversaries` 校验、去重、写入
-- [ ] 「今天是什么日子」公共函数；context 第 10 条；wake prompt 那一行；`src/yuwen/prompts/wake.md` 同步
-- [ ] HTTP：`GET/POST /anniversaries`、`PATCH /anniversaries/{id}`、纪年页；目录页加入口
-- [ ] 导出：JSON 带 `anniversaries`；Markdown 加一节「纪年」
-- [ ] 测试覆盖：`this_batch` 时随笔是封着的、有历史、待续没记、`resolved` 照常；`ids` 封对、没列过的忽略、已封的不重复写历史；先计想起再封；`forget` 格式坏了不封、随笔照常；整个解析失败不封；`forget.enabled = false` 时 prompt 没这段；纪年最多 2 件、坏日期丢掉、`02-29` 可以、一次性没年份丢掉、重复不加；今天是什么日子：每年的、一次性的、停用的不算、平年 02-28 算上 02-29、按 `wake.timezone` 算今天；上下文有这段且第几年对；wake prompt 有这一行、没有纪年时整行去掉；三个 HTTP 接口和校验、没登录进不去
+- [x] 迁移 007：`anniversaries`；`schema_version` 变 7
+- [x] 配置：`forget.*`、`anniversary.*`，`config.example.toml` 同步
+- [x] inflow：「可以封起来的往事」和 `forget`；`this_batch` 写封着的随笔、不记待续；`ids` 只认列过的；先计想起再封；`src/yuwen/prompts/inflow.md` 同步
+- [x] inflow：`anniversaries` 校验、去重、写入
+- [x] 「今天是什么日子」公共函数；context 第 10 条；wake prompt 那一行；`src/yuwen/prompts/wake.md` 同步
+- [x] HTTP：`GET/POST /anniversaries`、`PATCH /anniversaries/{id}`、纪年页；目录页加入口
+- [x] 导出：JSON 带 `anniversaries`；Markdown 加一节「纪年」
+- [x] 测试覆盖：`this_batch` 时随笔是封着的、有历史、待续没记、`resolved` 照常；`ids` 封对、没列过的忽略、已封的不重复写历史；先计想起再封；`forget` 格式坏了不封、随笔照常；整个解析失败不封；`forget.enabled = false` 时 prompt 没这段；纪年最多 2 件、坏日期丢掉、`02-29` 可以、一次性没年份丢掉、重复不加；今天是什么日子：每年的、一次性的、停用的不算、平年 02-28 算上 02-29、按 `wake.timezone` 算今天；上下文有这段且第几年对；wake prompt 有这一行、没有纪年时整行去掉；三个 HTTP 接口和校验、没登录进不去
 
 #### M2.4 之后
 
