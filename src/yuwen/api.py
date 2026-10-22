@@ -13,8 +13,9 @@ from typing import Literal
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
+from yuwen.anniversaries import validate_anniversary
 from yuwen.chat import ChatModel, ChatService
 from yuwen.auth import AuthService, COOKIE_NAME
 from yuwen.catalog import CatalogService
@@ -119,6 +120,30 @@ class MemoryStatus(BaseModel):
     note: str = Field(default="", max_length=100)
 
 
+class AnniversaryCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    month_day: StrictStr
+    year: StrictInt | None = None
+    yearly: StrictBool = True
+    title: StrictStr
+
+
+class AnniversaryPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    month_day: StrictStr | None = None
+    year: StrictInt | None = None
+    yearly: StrictBool | None = None
+    title: StrictStr | None = None
+    active: StrictBool | None = None
+
+
+def _anniversary_values(month_day: object, year: object, yearly: object, title: object) -> dict[str, object]:
+    date_text = f"{year:04d}-{month_day}" if type(year) is int and year > 0 else month_day
+    if year is not None and (type(year) is not int or year <= 0):
+        raise ValueError("纪年年份无效")
+    return validate_anniversary({"date": date_text, "title": title, "yearly": yearly})
+
+
 def create_app(
     config: AppConfig,
     *,
@@ -147,6 +172,8 @@ def create_app(
         entry_budget=config.worldbook.entry_budget,
         corpus_sample=config.worldbook.corpus_sample,
         todo=config.todo,
+        anniversary=config.anniversary,
+        wake_timezone=config.wake.timezone,
     )
     inflow_service = InflowService(
         database,
@@ -156,6 +183,8 @@ def create_app(
         every_n_turns=config.inflow.every_n_turns,
         embedder=embedder,
         todo=config.todo,
+        forget=config.forget,
+        anniversary=config.anniversary,
     )
     handoff_service = HandoffService(
         database,
@@ -196,6 +225,7 @@ def create_app(
     )
     wake_service = WakeService(
         database, context, books, model, config=config.wake,
+        anniversary=config.anniversary,
         player_name=config.character.player_name, character_name=config.character.name,
         surfacing=surfacing_service,
         gatekeeper=gatekeeper_service if config.gatekeeper.pre_send else None,
@@ -250,7 +280,7 @@ def create_app(
         allowed = {("GET", "/login"), ("POST", "/login"), ("GET", "/health")}
         if (request.method, request.url.path) not in allowed:
             if not auth_service.is_authenticated(request.cookies.get(COOKIE_NAME)):
-                if request.method == "GET" and request.url.path in {"/", "/catalog"}:
+                if request.method == "GET" and request.url.path in {"/", "/catalog", "/anniversaries/page"}:
                     return RedirectResponse("/login", status_code=303)
                 return JSONResponse({"detail": "请先登录"}, status_code=401)
         if request.method in {"POST", "PATCH"}:
@@ -266,6 +296,51 @@ def create_app(
     @app.get("/catalog", response_class=HTMLResponse)
     async def get_catalog_page() -> str:
         return files("yuwen.static").joinpath("catalog.html").read_text(encoding="utf-8")
+
+    @app.get("/anniversaries/page", response_class=HTMLResponse)
+    async def get_anniversaries_page() -> str:
+        return files("yuwen.static").joinpath("anniversaries.html").read_text(encoding="utf-8")
+
+    @app.get("/anniversaries")
+    async def get_anniversaries() -> list[dict[str, object]]:
+        keys = ("id", "month_day", "year", "yearly", "title", "source", "memory_id", "active")
+        return [{key: row[key] if key not in {"yearly", "active"} else bool(row[key]) for key in keys}
+                for row in database.list_anniversaries()]
+
+    @app.post("/anniversaries")
+    async def post_anniversary(body: AnniversaryCreate) -> dict[str, object]:
+        try:
+            values = _anniversary_values(body.month_day, body.year, body.yearly, body.title)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        anniversary_id = database.add_anniversary(**values, source="manual")
+        if anniversary_id is None:
+            raise HTTPException(status_code=422, detail="这条纪年已经记过")
+        row = database.get_anniversary(anniversary_id)
+        assert row is not None
+        return row
+
+    @app.patch("/anniversaries/{anniversary_id}")
+    async def patch_anniversary(anniversary_id: int, body: AnniversaryPatch) -> dict[str, object]:
+        old = database.get_anniversary(anniversary_id)
+        if old is None:
+            raise HTTPException(status_code=404, detail="找不到这条纪年")
+        supplied = body.model_fields_set
+        if any(getattr(body, key) is None for key in supplied if key != "year"):
+            raise HTTPException(status_code=422, detail="纪年字段不能为空")
+        combined = {key: getattr(body, key) if key in supplied else (bool(old[key]) if key in {"yearly", "active"} else old[key])
+                    for key in ("month_day", "year", "yearly", "title", "active")}
+        try:
+            values = _anniversary_values(combined["month_day"], combined["year"], combined["yearly"], combined["title"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        changes = {key: values[key] for key in ("month_day", "year", "yearly", "title") if key in supplied}
+        if "active" in supplied:
+            changes["active"] = combined["active"]
+        database.update_anniversary(anniversary_id, **changes)
+        row = database.get_anniversary(anniversary_id)
+        assert row is not None
+        return row
 
     @app.get("/login", response_class=HTMLResponse)
     async def get_login(request: Request) -> Response:

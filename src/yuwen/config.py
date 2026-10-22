@@ -84,6 +84,17 @@ class TodoConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ForgetConfig:
+    enabled: bool = True
+    recent_memories: int = 5
+
+
+@dataclass(frozen=True, slots=True)
+class AnniversaryConfig:
+    enabled: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class WakeConfig:
     enabled: bool = True
     timezone: str = ""
@@ -147,6 +158,8 @@ class AppConfig:
     surfacing: SurfacingConfig = SurfacingConfig()
     decay: DecayConfig = DecayConfig()
     todo: TodoConfig = TodoConfig()
+    forget: ForgetConfig = ForgetConfig()
+    anniversary: AnniversaryConfig = AnniversaryConfig()
     wake: WakeConfig = WakeConfig()
     auth: AuthConfig = AuthConfig()
 
@@ -272,6 +285,17 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
     todo_stale_days = _integer_option(todo_data, "stale_days", "todo", 30, 1)
     todo_max_open_in_prompt = _integer_option(todo_data, "max_open_in_prompt", "todo", 10, 1)
 
+    forget_data = _section(data, "forget")
+    forget_enabled = forget_data.get("enabled", True)
+    if not isinstance(forget_enabled, bool):
+        raise ConfigError("[forget] enabled 必须是布尔值")
+    forget_recent_memories = _integer_option(forget_data, "recent_memories", "forget", 5, 0)
+
+    anniversary_data = _section(data, "anniversary")
+    anniversary_enabled = anniversary_data.get("enabled", True)
+    if not isinstance(anniversary_enabled, bool):
+        raise ConfigError("[anniversary] enabled 必须是布尔值")
+
     wake_data = _section(data, "wake")
     wake_enabled = wake_data.get("enabled", True)
     if not isinstance(wake_enabled, bool):
@@ -383,6 +407,8 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
             todo_enabled, todo_max_in_context, todo_cooldown_hours,
             todo_stale_days, todo_max_open_in_prompt,
         ),
+        forget=ForgetConfig(forget_enabled, forget_recent_memories),
+        anniversary=AnniversaryConfig(anniversary_enabled),
         wake=WakeConfig(
             wake_enabled, wake_timezone, wake_active_hours, wake_min_interval,
             wake_max_interval, wake_min_silence, wake_max_per_day,

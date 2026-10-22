@@ -20,6 +20,7 @@ TABLES = (
     "handoffs",
     "voice_notes",
     "wake_log",
+    "anniversaries",
 )
 
 
@@ -99,7 +100,14 @@ class Store:
                     .joinpath("migrations", "006_wake_log.sql")
                     .read_text(encoding="utf-8")
                 )
-            elif version != "6":
+                version = "6"
+            if version == "6":
+                connection.executescript(
+                    files("yuwen")
+                    .joinpath("migrations", "007_anniversaries.sql")
+                    .read_text(encoding="utf-8")
+                )
+            elif version != "7":
                 raise RuntimeError(f"不支持的数据库版本：{version}")
 
     def schema_version(self) -> str:
@@ -300,6 +308,54 @@ class Store:
         with self._connect() as connection:
             connection.execute("UPDATE wake_log SET notified = 1 WHERE id = ?", (wake_id,))
 
+    def list_anniversaries(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM anniversaries ORDER BY month_day, id").fetchall()
+        return [dict(row) for row in rows]
+
+    def add_anniversary(
+        self, *, month_day: str, year: int | None, yearly: bool, title: str,
+        source: str, memory_id: int | None = None,
+    ) -> int | None:
+        """相同日期、年份、名字的启用纪年不重复记录。"""
+        when = now_iso()
+        with self._connect() as connection:
+            duplicate = connection.execute(
+                """SELECT id FROM anniversaries WHERE month_day = ? AND year IS ?
+                AND title = ? AND active = 1 LIMIT 1""", (month_day, year, title)
+            ).fetchone()
+            if duplicate is not None:
+                return None
+            cursor = connection.execute(
+                """INSERT INTO anniversaries
+                (month_day, year, yearly, title, source, memory_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (month_day, year, int(yearly), title, source, memory_id, when, when),
+            )
+            return int(cursor.lastrowid)
+
+    def get_anniversary(self, anniversary_id: int) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM anniversaries WHERE id = ?", (anniversary_id,)).fetchone()
+        return dict(row) if row else None
+
+    def update_anniversary(self, anniversary_id: int, **changes: object) -> bool:
+        allowed = {"month_day", "year", "yearly", "title", "active"}
+        if not changes or not set(changes) <= allowed:
+            return False
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM anniversaries WHERE id = ?", (anniversary_id,)).fetchone()
+            if row is None:
+                return False
+            changed = {key: value for key, value in changes.items() if row[key] != value}
+            if changed:
+                assignments = ", ".join(f"{key} = ?" for key in changed)
+                connection.execute(
+                    f"UPDATE anniversaries SET {assignments}, updated_at = ? WHERE id = ?",  # noqa: S608
+                    (*changed.values(), now_iso(), anniversary_id),
+                )
+            return True
+
     def add_memory(
         self,
         *,
@@ -353,6 +409,32 @@ class Store:
                 ORDER BY happened_at DESC, id DESC"""
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def list_recent_turn_memories(self, session_id: int, limit: int) -> list[dict[str, Any]]:
+        if limit <= 0:
+            return []
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT * FROM memories WHERE session_id = ? AND kind = 'turn' AND sealed = 0
+                ORDER BY happened_at DESC, id DESC LIMIT ?""", (session_id, limit)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def sealed_source_message_ids(self, session_id: int) -> set[int]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT source_message_ids FROM memories WHERE session_id = ? AND sealed = 1",
+                (session_id,),
+            ).fetchall()
+        result: set[int] = set()
+        for row in rows:
+            try:
+                ids = json.loads(row["source_message_ids"])
+            except (TypeError, ValueError):
+                continue
+            if isinstance(ids, list):
+                result.update(item for item in ids if type(item) is int)
+        return result
 
     def list_open_todos(self) -> list[dict[str, Any]]:
         with self._connect() as connection:
@@ -426,7 +508,7 @@ class Store:
             )
             return True
 
-    def set_memory_sealed(self, memory_id: int, sealed: bool) -> bool:
+    def set_memory_sealed(self, memory_id: int, sealed: bool, *, reason: str | None = None) -> bool:
         with self._connect() as connection:
             row = connection.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
             if row is None or row["kind"] not in {"turn", "handoff"}:
@@ -437,7 +519,7 @@ class Store:
             snapshot.pop("embedding", None)
             connection.execute(
                 "INSERT INTO memory_history (memory_id, snapshot, changed_at, reason) VALUES (?, ?, ?, ?)",
-                (memory_id, _json(snapshot), now_iso(), "封页" if sealed else "撕开"),
+                (memory_id, _json(snapshot), now_iso(), reason or ("封页" if sealed else "撕开")),
             )
             connection.execute(
                 "UPDATE memories SET sealed = ? WHERE id = ?", (int(sealed), memory_id)

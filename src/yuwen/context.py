@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from yuwen.config import TodoConfig
+from yuwen.anniversaries import anniversary_label, local_today, todays_anniversaries
+from yuwen.config import AnniversaryConfig, TodoConfig
 from yuwen.store import Store
 from yuwen.worldbook import WorldbookReader
 
@@ -30,6 +31,8 @@ class ContextBuilder:
         entry_budget: int = 3000,
         corpus_sample: int = 8,
         todo: TodoConfig = TodoConfig(),
+        anniversary: AnniversaryConfig = AnniversaryConfig(),
+        wake_timezone: str = "",
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ):
         self.store = store
@@ -39,6 +42,8 @@ class ContextBuilder:
         self.entry_budget = entry_budget
         self.corpus_sample = corpus_sample
         self.todo = todo
+        self.anniversary = anniversary
+        self.wake_timezone = wake_timezone
         self.clock = clock
 
     def find_open_todos(self, session_id: int) -> TodoResult | None:
@@ -103,6 +108,17 @@ class ContextBuilder:
                 f"他会说：{note['rewritten']} / 因为：{note['reason']}"
             )
         return {"role": "system", "content": "\n".join(lines)}
+
+    def anniversary_text(self) -> str | None:
+        if not self.anniversary.enabled:
+            return None
+        today = local_today(self.wake_timezone, now=self.clock())
+        rows = todays_anniversaries(self.store, today)
+        if not rows:
+            return None
+        lines = ["今天是你们记着的日子。自然地记得就好，不用每句都提。", ""]
+        lines.extend(f"· {anniversary_label(row, today)}" for row in rows)
+        return "\n".join(lines)
 
     def _handoff_messages(self, session: dict[str, Any]) -> list[dict[str, str]]:
         handoff_id = session.get("continues_handoff_id")
@@ -182,7 +198,7 @@ class ContextBuilder:
             messages.append(voice_notes)
         inserted = [
             {"role": "system", "content": text}
-            for text in (surfaced, todo_text) if text
+            for text in (surfaced, todo_text, self.anniversary_text()) if text
         ]
         if handoff_messages and handoff_messages[0]["role"] == "system":
             handoff_messages[1:1] = inserted

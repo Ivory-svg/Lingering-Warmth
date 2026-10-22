@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>纪年 · 余温</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color: #352f2b; background: #f5f1eb; }
+    body { max-width: 760px; margin: auto; padding: 1rem; }
+    header, nav, form, .actions { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; }
+    header { justify-content: space-between; }
+    a { color: #765f4d; }
+    button, input { font: inherit; padding: .5rem; border: 1px solid #cbbdb0; border-radius: .5rem; }
+    button { cursor: pointer; background: #fffdfa; color: #554638; }
+    li { padding: .7rem 0; border-bottom: 1px solid #ded3c8; }
+    .muted { opacity: .5; }
+    #notice { color: #9c312a; min-height: 1.5rem; }
+    label { display: inline-flex; align-items: center; gap: .3rem; }
+  </style>
+</head>
+<body>
+  <header><h1>纪年</h1><nav><a href="/catalog">回目录</a><a href="/">回聊天</a><button id="logout" type="button">登出</button></nav></header>
+  <p>记下你们想记住的日子。每年都过的日期可以不填年份；只过一次的日子要填年份。</p>
+  <form id="form">
+    <label>月日<input id="month-day" placeholder="03-14" pattern="[0-9]{2}-[0-9]{2}" required></label>
+    <label>年份<input id="year" type="number" min="1" max="9999" placeholder="可不填"></label>
+    <label>名字<input id="title" maxlength="30" required></label>
+    <label><input id="yearly" type="checkbox" checked>每年都过</label>
+    <button type="submit">记下</button>
+  </form>
+  <p id="notice" role="status"></p>
+  <ul id="list"></ul>
+  <script>
+    const list = document.getElementById('list');
+    const notice = document.getElementById('notice');
+    async function request(url, options) {
+      const response = await fetch(url, options);
+      if (response.status === 401) { location.assign('/login'); throw new Error('请先登录'); }
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '请检查日期和名字');
+      return data;
+    }
+    function jsonOptions(method, body) {
+      return {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)};
+    }
+    function showError(error) { notice.textContent = error.message; }
+    async function load() {
+      try {
+        const rows = await request('/anniversaries');
+        list.replaceChildren();
+        for (const row of rows) {
+          const li = document.createElement('li');
+          if (!row.active) li.className = 'muted';
+          const description = document.createElement('span');
+          description.textContent = `${row.year ? row.year + '-' : ''}${row.month_day} · ${row.title} · ${row.yearly ? '每年' : '只这一次'}${row.active ? '' : ' · 已停用'} `;
+          const edit = document.createElement('button');
+          edit.type = 'button'; edit.textContent = '改';
+          edit.addEventListener('click', async () => {
+            const monthDay = prompt('月日（MM-DD）', row.month_day);
+            if (monthDay === null) return;
+            const yearText = prompt('年份（可留空）', row.year ?? '');
+            if (yearText === null) return;
+            const title = prompt('名字', row.title);
+            if (title === null) return;
+            const yearly = confirm('这一天每年都过吗？点“取消”表示只过一次。');
+            try {
+              await request(`/anniversaries/${row.id}`, jsonOptions('PATCH', {
+                month_day: monthDay, year: yearText ? Number(yearText) : null, title, yearly
+              }));
+              notice.textContent = '已改好'; await load();
+            } catch (error) { showError(error); }
+          });
+          const toggle = document.createElement('button');
+          toggle.type = 'button'; toggle.textContent = row.active ? '停用' : '恢复';
+          toggle.addEventListener('click', async () => {
+            try {
+              await request(`/anniversaries/${row.id}`, jsonOptions('PATCH', {active: !row.active}));
+              notice.textContent = row.active ? '已停用' : '已恢复'; await load();
+            } catch (error) { showError(error); }
+          });
+          li.append(description, edit, toggle); list.append(li);
+        }
+      } catch (error) { showError(error); }
+    }
+    document.getElementById('form').addEventListener('submit', async event => {
+      event.preventDefault();
+      try {
+        await request('/anniversaries', jsonOptions('POST', {
+          month_day: document.getElementById('month-day').value,
+          year: document.getElementById('year').value ? Number(document.getElementById('year').value) : null,
+          title: document.getElementById('title').value,
+          yearly: document.getElementById('yearly').checked
+        }));
+        document.getElementById('form').reset();
+        document.getElementById('yearly').checked = true;
+        notice.textContent = '已记下'; await load();
+      } catch (error) { showError(error); }
+    });
+    document.getElementById('logout').addEventListener('click', async () => {
+      await request('/logout', jsonOptions('POST', {})); location.assign('/login');
+    });
+    load();
+  </script>
+</body>
+</html>

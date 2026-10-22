@@ -376,7 +376,7 @@ def test_inflow_batch_counts_repeated_memory_once_at_last_reply(tmp_path: Path) 
 
     prompt = llm.messages[0][0]["content"]
     assert "下面是3轮对话" in prompt
-    assert prompt.count(f"[#{old}]") == 1
+    assert prompt.split("【可以封起来的往事】")[0].count(f"[#{old}]") == 1
     assert store.get_memory(old)["recall_count"] == 1  # type: ignore[index]
     assert store.get_memory(old)["last_recalled_at"] == "2026-10-07T20:03:00+08:00"  # type: ignore[index]
 

@@ -88,6 +88,28 @@ def test_handoff_closes_old_session_and_continues_with_tail(tmp_path: Path) -> N
     assert any("刚答应模拟一遍" in message["content"] for message in chat_call[0])
 
 
+def test_handoff_does_not_carry_sealed_source_messages(tmp_path: Path) -> None:
+    store, context = parts(tmp_path)
+    session = store.create_session()
+    secret_user = store.add_message(session, "user", "不想再说的事")
+    secret_reply = store.add_message(session, "assistant", "好，不提了")
+    memory_id = store.add_memory(
+        kind="turn", happened_at="2026-10-21T10:00:00+08:00", summary="封起来的事",
+        emotion_text="平静", certainty=0.9,
+        source_message_ids=[secret_user, secret_reply], session_id=session,
+    )
+    store.set_memory_sealed(memory_id, True, reason="对话里说忘掉：不提了")
+    visible = store.add_message(session, "user", "说点别的")
+    llm = SequenceLLM([json.dumps({"doing": "聊天", "where_we_are": "说点别的", "emotion": "平静"})])
+    handoff = HandoffService(store, llm, context_limit=1, trigger_ratio=1, raw_tail=20)
+    result = asyncio.run(handoff.maybe_handoff(session, context.build(session)))
+    assert result.happened
+    raw_ids = json.loads(store.get_handoff(1)["raw_tail_message_ids"])
+    assert raw_ids == [visible]
+    carried = context.build(result.session_id)
+    assert not any(row["content"] in {"不想再说的事", "好，不提了"} for row in carried)
+
+
 def test_handoff_does_not_run_below_threshold(tmp_path: Path) -> None:
     store, context = parts(tmp_path)
     llm = SequenceLLM(["普通回复"])

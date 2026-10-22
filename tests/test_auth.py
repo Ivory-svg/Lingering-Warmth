@@ -48,7 +48,7 @@ def test_login_logout_and_all_routes_are_locked_by_default(tmp_path: Path) -> No
                                           follow_redirects=False)
                 if (method, route.path) in allowed:
                     assert response.status_code not in {303, 401}, (method, path)
-                elif method == "GET" and route.path in {"/", "/catalog"}:
+                elif method == "GET" and route.path in {"/", "/catalog", "/anniversaries/page"}:
                     assert response.status_code == 303 and response.headers["location"] == "/login"
                 else:
                     assert response.status_code == 401, (method, path, response.text)

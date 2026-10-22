@@ -97,4 +97,10 @@ def build_markdown_export(store: Store, *, character_name: str = "他") -> str:
         if note["overturn_note"]:
             lines.append(f"推翻说明：{note['overturn_note']}")
         lines.append("")
+    lines.extend(["## 纪年", ""])
+    for row in store.list_anniversaries():
+        day = f"{row['year']}-{row['month_day']}" if row["year"] is not None else row["month_day"]
+        frequency = "每年" if row["yearly"] else "只这一次"
+        state = "" if row["active"] else "，已停用"
+        lines.append(f"- {day} · {row['title']}（{frequency}{state}）")
     return "\n".join(lines).rstrip() + "\n"

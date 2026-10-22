@@ -9,7 +9,8 @@ import json
 from typing import Any
 
 from yuwen.chat import ChatModel
-from yuwen.config import TodoConfig
+from yuwen.anniversaries import validate_anniversary
+from yuwen.config import AnniversaryConfig, ForgetConfig, TodoConfig
 from yuwen.embedder import MemoryEmbedder
 from yuwen.store import Store
 
@@ -32,6 +33,8 @@ class InflowService:
         every_n_turns: int = 1,
         embedder: MemoryEmbedder | None = None,
         todo: TodoConfig = TodoConfig(),
+        forget: ForgetConfig = ForgetConfig(),
+        anniversary: AnniversaryConfig = AnniversaryConfig(),
     ):
         self.store = store
         self.llm = llm
@@ -40,6 +43,8 @@ class InflowService:
         self.every_n_turns = every_n_turns
         self.embedder = embedder
         self.todo = todo
+        self.forget = forget
+        self.anniversary = anniversary
         self._lock = asyncio.Lock()
         self._template = files("yuwen.prompts").joinpath("inflow.md").read_text(encoding="utf-8")
 
@@ -67,6 +72,7 @@ class InflowService:
         turns: list[tuple[dict[str, Any], dict[str, Any]]],
         surfaced: dict[int, str],
         open_todos: list[dict[str, Any]] | None = None,
+        sealable: list[dict[str, Any]] | None = None,
     ) -> str:
         letter_lines = self._letters_before(turns)
         dialogue = "\n".join(
@@ -103,6 +109,17 @@ class InflowService:
             template = template.replace(
                 "\n【这几轮里递给{角色名}的往事】\n{递给他的往事}\n", ""
             )
+        if self.forget.enabled:
+            seal_lines = []
+            for memory in sealable or []:
+                happened = datetime.fromisoformat(str(memory["happened_at"]))
+                line = f"[#{memory['id']}] {happened.month}月{happened.day}日：{memory['summary']}"
+                if memory["quote"]:
+                    line += f"。原话「{memory['quote']}」"
+                seal_lines.append(line)
+            template = template.replace("{可以封起来的往事}", "\n".join(seal_lines) or "（没有）")
+        else:
+            template = template.replace("\n【可以封起来的往事】\n{可以封起来的往事}\n", "")
         lines = template.splitlines()
         lines = [
             line for line in lines
@@ -110,6 +127,8 @@ class InflowService:
                 (line.startswith(' "used_memory_ids":') and not surfaced)
                 or (line.startswith(' "todos":') and not self.todo.enabled)
                 or (line.startswith(' "resolved":') and not (self.todo.enabled and open_todos))
+                or (line.startswith(' "forget":') and not self.forget.enabled)
+                or (line.startswith(' "anniversaries":') and not self.anniversary.enabled)
             )
         ]
         field_indices = [
@@ -181,6 +200,23 @@ class InflowService:
         used = data.get("used_memory_ids")
         todos = data.get("todos") if todo_enabled else None
         resolved = data.get("resolved") if todo_enabled and allow_resolved else None
+        forget = data.get("forget")
+        if not (
+            isinstance(forget, dict)
+            and type(forget.get("this_batch")) is bool
+            and isinstance(forget.get("ids"), list)
+            and all(type(item) is int for item in forget["ids"])
+            and isinstance(forget.get("reason"), str)
+        ):
+            forget = None
+        anniversaries = data.get("anniversaries")
+        valid_anniversaries = []
+        if isinstance(anniversaries, list):
+            for item in anniversaries[:2]:
+                try:
+                    valid_anniversaries.append(validate_anniversary(item))
+                except ValueError:
+                    continue
         todos = [
             item for item in todos
             if isinstance(item, dict)
@@ -212,7 +248,23 @@ class InflowService:
             ),
             "todos": todos[:3],
             "resolved": resolved,
+            "forget": forget,
+            "anniversaries": valid_anniversaries,
         }
+
+    def _sealable_for_prompt(self, session_id: int, surfaced: dict[int, str]) -> list[dict[str, Any]]:
+        if not self.forget.enabled:
+            return []
+        candidates = self.store.list_recent_turn_memories(session_id, self.forget.recent_memories)
+        known = {int(row["id"]) for row in candidates}
+        for memory_id in surfaced:
+            if memory_id in known:
+                continue
+            memory = self.store.get_memory(memory_id)
+            if memory is not None and not memory["sealed"]:
+                candidates.append(memory)
+                known.add(memory_id)
+        return sorted(candidates, key=lambda row: (str(row["happened_at"]), int(row["id"])), reverse=True)
 
     def _open_for_prompt(self, surfaced: dict[int, str]) -> list[dict[str, Any]]:
         if not self.todo.enabled:
@@ -230,9 +282,10 @@ class InflowService:
 
         surfaced = self._surfaced_for_turns(turns)
         open_todos = self._open_for_prompt(surfaced)
+        sealable = self._sealable_for_prompt(int(turns[-1][1]["session_id"]), surfaced)
         try:
             raw = await self.llm.chat(
-                [{"role": "user", "content": self._prompt(turns, surfaced, open_todos)}],
+                [{"role": "user", "content": self._prompt(turns, surfaced, open_todos, sealable)}],
                 small=True,
                 json_response=True,
             )
@@ -274,7 +327,16 @@ class InflowService:
                         item["id"], status=item["status"], note=item["note"],
                         resolved_at=str(last_assistant["created_at"]),
                     )
-            for item in memory.get("todos", []):
+        forget = memory.get("forget") if self.forget.enabled else None
+        forget_reason = f"对话里说忘掉：{forget['reason']}" if isinstance(forget, dict) else ""
+        if isinstance(forget, dict):
+            allowed = {int(row["id"]) for row in sealable}
+            for target_id in set(forget["ids"]) & allowed:
+                self.store.set_memory_sealed(target_id, True, reason=forget_reason)
+            if forget["this_batch"]:
+                self.store.set_memory_sealed(memory_id, True, reason=forget_reason)
+        if self.todo.enabled:
+            for item in ([] if isinstance(forget, dict) and forget["this_batch"] else memory.get("todos", [])):
                 summary = item["summary"].strip()
                 if not summary:
                     continue
@@ -296,6 +358,9 @@ class InflowService:
                     await self.embedder.embed_memory(todo_id)
         if self.embedder is not None:
             await self.embedder.embed_memory(memory_id)
+        if self.anniversary.enabled:
+            for item in memory.get("anniversaries", []):
+                self.store.add_anniversary(**item, source="conversation", memory_id=memory_id)
         return memory_id
 
     async def process_turn(

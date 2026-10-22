@@ -49,12 +49,26 @@ def test_build_export_contains_every_table_and_base64_embedding(tmp_path: Path) 
 
     exported = build_export(store)
 
-    assert exported["schema_version"] == "6"
+    assert exported["schema_version"] == "7"
     assert set(exported["tables"]) == set(TABLES)
     assert exported["tables"]["memories"][0]["embedding"] == base64.b64encode(
         b"\x00\x01\x02"
     ).decode("ascii")
-    assert all(exported["tables"][table] for table in TABLES if table != "wake_log")
+    assert all(exported["tables"][table] for table in TABLES if table not in {"wake_log", "anniversaries"})
+
+
+def test_anniversaries_are_in_json_and_markdown_export(tmp_path: Path) -> None:
+    store = Store(tmp_path / "test.db")
+    store.initialize()
+    anniversary_id = store.add_anniversary(
+        month_day="03-14", year=2024, yearly=True, title="第一次见面", source="manual"
+    )
+    store.update_anniversary(anniversary_id, active=False)
+    exported = build_export(store)
+    assert exported["tables"]["anniversaries"][0]["title"] == "第一次见面"
+    markdown = build_markdown_export(store)
+    assert "## 纪年" in markdown
+    assert "2024-03-14 · 第一次见面（每年，已停用）" in markdown
 
 
 def test_export_and_health_endpoints(tmp_path: Path) -> None:
@@ -67,7 +81,7 @@ def test_export_and_health_endpoints(tmp_path: Path) -> None:
         exported = client.get("/export")
         markdown = client.get("/export?format=markdown")
 
-    assert health.json() == {"ok": True, "schema_version": "6"}
+    assert health.json() == {"ok": True, "schema_version": "7"}
     assert exported.status_code == 200
     assert "attachment" in exported.headers["content-disposition"]
     assert set(exported.json()["tables"]) == set(TABLES)

@@ -110,7 +110,8 @@ class HandoffService:
             }
             degraded = True
         tail = self.store.list_tail_messages(session_id, self.raw_tail)
-        tail_ids = [int(message["id"]) for message in tail]
+        sealed_ids = self.store.sealed_source_message_ids(session_id)
+        tail_ids = [int(message["id"]) for message in tail if int(message["id"]) not in sealed_ids]
         created_at = now_iso()
         handoff_id = self.store.add_handoff(
             session_id=session_id,

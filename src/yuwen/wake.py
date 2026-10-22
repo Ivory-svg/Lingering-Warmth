@@ -12,8 +12,9 @@ import random
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from yuwen.anniversaries import anniversary_label, todays_anniversaries
 from yuwen.chat import ChatModel
-from yuwen.config import WakeConfig
+from yuwen.config import AnniversaryConfig, WakeConfig
 from yuwen.context import ContextBuilder
 from yuwen.gatekeeper import GatekeeperService
 from yuwen.store import Store
@@ -30,6 +31,7 @@ class WakeService:
     def __init__(
         self, store: Store, context: ContextBuilder, worldbook: WorldbookReader,
         llm: ChatModel, *, config: WakeConfig = WakeConfig(),
+        anniversary: AnniversaryConfig = AnniversaryConfig(),
         player_name: str = "对方", character_name: str = "他",
         surfacing: SurfacingService | None = None,
         gatekeeper: GatekeeperService | None = None,
@@ -43,6 +45,7 @@ class WakeService:
         self.worldbook = worldbook
         self.llm = llm
         self.config = config
+        self.anniversary = anniversary
         self.player_name = player_name
         self.character_name = character_name
         self.surfacing = surfacing
@@ -162,6 +165,9 @@ class WakeService:
             prompt = prompt.replace("按你的日常，你这会儿大概在：{日常此刻}\n", "")
         if latest is None:
             prompt = prompt.replace("你们最后一次聊天时的心情：{最近的心情}\n", "")
+        today_rows = todays_anniversaries(self.store, local.date()) if self.anniversary.enabled else []
+        if not today_rows:
+            prompt = prompt.replace("今天是你们记着的日子：{今天的纪年}\n", "")
         values = {
             "{当地时间}": f"{local.month}月{local.day}日 {local.hour:02d}:{local.minute:02d}",
             "{星期}": ("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")[local.weekday()],
@@ -170,6 +176,7 @@ class WakeService:
             "{没回的}": str(unanswered),
             "{日常此刻}": daily_now,
             "{最近的心情}": str(latest["emotion_text"]) if latest else "",
+            "{今天的纪年}": "、".join(anniversary_label(row, local.date(), for_wake=True) for row in today_rows),
             "{玩家}": self.player_name,
         }
         for placeholder, value in values.items():

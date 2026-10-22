@@ -56,6 +56,8 @@ def test_load_config_applies_defaults_and_resolves_paths(tmp_path: Path) -> None
     assert config.todo.cooldown_hours == 12
     assert config.todo.stale_days == 30
     assert config.todo.max_open_in_prompt == 10
+    assert config.forget.enabled and config.forget.recent_memories == 5
+    assert config.anniversary.enabled
     assert config.wake.enabled
     assert config.wake.timezone == ""
     assert config.wake.active_hours == "09:00-23:00"
@@ -101,6 +103,8 @@ def test_load_config_accepts_new_options(tmp_path: Path) -> None:
         "\n[decay]\nbase_days = 12.5\n"
         "\n[todo]\nenabled = false\nmax_in_context = 2\n"
         "cooldown_hours = 6\nstale_days = 20\nmax_open_in_prompt = 7\n"
+        "\n[forget]\nenabled = false\nrecent_memories = 8\n"
+        "\n[anniversary]\nenabled = false\n"
         "\n[wake]\nenabled = false\ntimezone = 'Asia/Shanghai'\n"
         "active_hours = '08:30-21:45'\nmin_interval_minutes = 15\n"
         "max_interval_minutes = 90\nmin_silence_minutes = 20\n"
@@ -140,6 +144,8 @@ def test_load_config_accepts_new_options(tmp_path: Path) -> None:
     assert config.todo.cooldown_hours == 6
     assert config.todo.stale_days == 20
     assert config.todo.max_open_in_prompt == 7
+    assert not config.forget.enabled and config.forget.recent_memories == 8
+    assert not config.anniversary.enabled
     assert not config.wake.enabled
     assert config.wake.timezone == "Asia/Shanghai"
     assert config.wake.active_hours == "08:30-21:45"
@@ -167,6 +173,9 @@ def test_load_config_accepts_new_options(tmp_path: Path) -> None:
         ("todo", "cooldown_hours = -1", "cooldown_hours"),
         ("todo", "stale_days = 0", "stale_days"),
         ("todo", "max_open_in_prompt = 0", "max_open_in_prompt"),
+        ("forget", "enabled = 'yes'", "enabled"),
+        ("forget", "recent_memories = -1", "recent_memories"),
+        ("anniversary", "enabled = 'yes'", "enabled"),
         ("wake", "active_hours = '9:00-23:00'", "active_hours"),
         ("wake", "active_hours = '09:60-23:00'", "active_hours"),
         ("wake", "timezone = 'No/Such_Zone'", "timezone"),
