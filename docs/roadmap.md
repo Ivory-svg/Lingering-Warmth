@@ -137,16 +137,29 @@
 - [x] Markdown 导出带上状态
 - [x] 测试覆盖：小模型列出待续时每件一条记忆、状态和时间对；超过 3 件只取 3 件；`resolved` 里没列过的 id 被忽略、`status` 乱写的被忽略；完结写历史；`todos` 或 `resolved` 格式不对只丢那一个字段、随笔照常写；整个解析失败不记待续；「还没完结的事」不带原话在眼前的、刚用上不到 12 小时的、超过 30 天的；最多 3 条；带进去的被用上后 `last_recalled_at` 更新、下一轮不再带；同一条不在翻阅里重复；翻到完结的带“已经做完了”；完结后褪墨更快；`todo.enabled = false` 时 prompt 没有这两段、上下文没有这段；`POST /memories/{id}/status` 五种改法各自对、一样的不写历史、乱写 422、没登录进不去
 
-#### M2.3 之后
+#### M2.4 · 对话里封页与纪年（接着做）
 
-- [ ] 封页：对话里说“这个忘掉吧”就封（目录里的手动封页在 M2.2）
+M3.1 之后做，纪年属于第三档，和封页一起做是因为都搭在随笔上。见 [design.md](design.md)「对话里封页怎么做」「纪年怎么做」，接口见 [interfaces.md](interfaces.md) 的 inflow「对话里封页」「纪年」「今天是什么日子」、context 第 10 条、wake、HTTP「纪年」，表见 [schema.md](schema.md) 的 anniversaries，prompt 见 [prompts/inflow.md](prompts/inflow.md)、[prompts/wake.md](prompts/wake.md)。
+
+- [ ] 迁移 007：`anniversaries`；`schema_version` 变 7
+- [ ] 配置：`forget.*`、`anniversary.*`，`config.example.toml` 同步
+- [ ] inflow：「可以封起来的往事」和 `forget`；`this_batch` 写封着的随笔、不记待续；`ids` 只认列过的；先计想起再封；`src/yuwen/prompts/inflow.md` 同步
+- [ ] inflow：`anniversaries` 校验、去重、写入
+- [ ] 「今天是什么日子」公共函数；context 第 10 条；wake prompt 那一行；`src/yuwen/prompts/wake.md` 同步
+- [ ] HTTP：`GET/POST /anniversaries`、`PATCH /anniversaries/{id}`、纪年页；目录页加入口
+- [ ] 导出：JSON 带 `anniversaries`；Markdown 加一节「纪年」
+- [ ] 测试覆盖：`this_batch` 时随笔是封着的、有历史、待续没记、`resolved` 照常；`ids` 封对、没列过的忽略、已封的不重复写历史；先计想起再封；`forget` 格式坏了不封、随笔照常；整个解析失败不封；`forget.enabled = false` 时 prompt 没这段；纪年最多 2 件、坏日期丢掉、`02-29` 可以、一次性没年份丢掉、重复不加；今天是什么日子：每年的、一次性的、停用的不算、平年 02-28 算上 02-29、按 `wake.timezone` 算今天；上下文有这段且第几年对；wake prompt 有这一行、没有纪年时整行去掉；三个 HTTP 接口和校验、没登录进不去
+
+#### M2.4 之后
+
+- [ ] 封页：见下面 M2.4
 - [ ] 折角：工具 + 日历页面 + 折角回复
 - [ ] 夹页
 - [ ] 指痕
 
 ### M3 · 第三档：他会想你
 
-#### M3.1 · 来信（接着做）
+#### M3.1 · 来信
 
 先于 M2.3 之后那几项做。见 [design.md](design.md)「来信」「来信怎么做」，接口见 [interfaces.md](interfaces.md) 的 wake、`GET /messages`，表见 [schema.md](schema.md) 的 wake_log 和 messages.meta，prompt 见 [prompts/wake.md](prompts/wake.md)。
 
@@ -167,7 +180,7 @@
 - [ ] 修订：改写记忆，保留历史；校对读修订
 - [ ] 留白：定时任务；写进按月的梦的合集，不单独开条目，不参与普通翻阅，和上一个梦几乎一样的不记
 - [ ] 来信：见下面 M3.1
-- [ ] 纪年
+- [ ] 纪年：见下面 M2.4
 
 ## 还没想清楚的
 

@@ -293,6 +293,14 @@
 - 否则先存一条 `memory_history`，`reason` 写 `封页` 或 `撕开`，再改 `sealed`
 - 响应：`{"id": 41, "sealed": true}`
 
+#### 纪年（M2.4）
+
+- `GET /anniversaries`：全部，含停用的，按 `month_day` 排；每条带 `id`、`month_day`、`year`、`yearly`、`title`、`source`、`memory_id`、`active`
+- `POST /anniversaries`：`{"month_day": "03-14", "year": 2024, "yearly": true, "title": "第一次见面"}`，`source = manual`。校验同 inflow；不合法 422
+- `PATCH /anniversaries/{id}`：可改 `month_day`、`year`、`yearly`、`title`、`active`，只改给了的；校验同上；不存在 404
+- 没有删除接口
+- `GET /anniversaries/page`：纪年页（单个 HTML），目录页顶上加入口。列表、加一个、改、停用 / 恢复
+
 #### `POST /memories/{id}/status`（M2.3）
 
 玩家改待续的状态。
@@ -384,6 +392,19 @@ priority: 5
 7. 本 session 的所有原话
 8. 第二档起：翻阅的记忆插在 5 和 6 之间
 9. M2.3 起：「还没完结的事」紧跟在翻阅的记忆后面，也在 6 之前
+10. M2.4 起：今天有纪年时，「今天是什么日子」紧跟在「还没完结的事」后面，也在 6 之前
+
+**「今天是什么日子」**（`anniversary.enabled = true` 且今天有纪年时）：一条 system。
+
+```
+今天是你们记着的日子。自然地记得就好，不用每句都提。
+
+· 第一次见面（2024 年那天，今天是第 2 年）
+· 阿栀的生日
+```
+
+- 有 `year` 且 `yearly = 1`：括号里写“{year} 年那天，今天是第 {今年 − year} 年”；差为 0 时不写括号
+- 没有 `year`，或 `yearly = 0`：不写括号
 
 **「还没完结的事」**（`todo.enabled = true` 时）：一条 system。
 
@@ -447,6 +468,26 @@ priority: 5
 - 新的待续要算向量，和普通随笔一样
 
 **待续的降级**：`todos`、`resolved` 缺失或格式不对，只忽略那一个字段，随笔照常写；JSON 整个解析失败、走原话降级路径时，不记待续、不完结任何事。
+
+**对话里封页（M2.4）**：`forget.enabled = true` 时，prompt 加一段「可以封起来的往事」，返回多一个字段 `forget`，见 [prompts/inflow.md](prompts/inflow.md)。
+
+- 「可以封起来的往事」：这批里递过的往事（`surfaced_memory_ids` 里的，不含已封的），加上这一卷里最近 `forget.recent_memories` 条（默认 5）没封页、`kind` 为 `turn` 的随笔，去重，按 `happened_at` 从新到旧。一条也没有也照样加这段，写“（没有）”，因为玩家可能要封的是这几轮本身
+- `forget`：`{"this_batch": true/false, "ids": [12, 31], "reason": "阿栀说不想再提考试的事"}`；玩家没要求忘掉时为 `null` 或省略
+- `ids`：只认「可以封起来的往事」里列过的；对每条，走和 `POST /memories/{id}/seal` 同一个 store 函数，`memory_history.reason` 写 `对话里说忘掉：{reason}`，已经封着的不重复写
+- `this_batch = true`：这批的随笔照常写，写完立刻用同一个封页函数封上（于是有一条 `memory_history`，`reason` 同上，目录里看得出是怎么封的）；这批的 `todos` 不记；`resolved` 照常处理
+- 封页在这批的 `used_memory_ids` 计次之后做：先算想起，再封
+- **降级**：`forget` 格式不对（不是对象、`this_batch` 不是布尔值、`ids` 不是整数数组）就整个忽略，随笔照常写、不封任何东西；JSON 整个解析失败、走原话降级路径时也不封
+
+**纪年（M2.4）**：`anniversary.enabled = true` 时，返回多一个字段 `anniversaries`，见 [prompts/inflow.md](prompts/inflow.md)。
+
+- 每件 `{"date": "MM-DD" 或 "YYYY-MM-DD", "title": "...", "yearly": true/false}`，最多取前 2 件
+- `date` 不合法（月日不存在，`02-29` 可以）、`title` 去掉空白后为空或超过 30 字、`yearly = false` 但没给年份：这一件丢掉
+- 已经有 `month_day`、`year`、`title` 都一样且 `active = 1` 的，不再加
+- 写进 `anniversaries`：`source = conversation`，`memory_id` 是这批的随笔
+- `this_batch` 封页时，这批的纪年照常记：日子本身不是心事；玩家不要可以在纪年页停用
+- **降级**：字段缺失或格式不对只忽略这一个字段
+
+**今天是什么日子**：一个公共函数，给定当地日期，返回今天的纪年：`active = 1`，且 `yearly = 1` 时 `month_day` 相同（平年的 `02-28` 也算上 `02-29` 的）；`yearly = 0` 时年月日都相同。“当地”用 `wake.timezone`（空 = 服务器本地）。
 
 ### handoff（续写，原名交接）
 
@@ -581,6 +622,7 @@ M2.3 起：`status` 是 `done` 或 `dropped` 的，稳定度再乘 0.5。目录�
 
 **问模型**
 - 上下文：`context.build`，和玩家刚说话时一样（翻阅拿这一卷最后 `surfacing.query_depth` 条原话去找；还没完结的事照常带）。最后再加一条 system，用 [prompts/wake.md](prompts/wake.md)
+- M2.4 起，今天有纪年时，prompt 里多一行，见 [prompts/wake.md](prompts/wake.md)
 - 用对话模型（不是小模型），要求只输出 JSON：`{"send": true, "reason": "...", "message": "..."}`
 - 解析失败、`send` 不是布尔值、`send = true` 但 `message` 去掉空白后是空的：都记 `decided = skip`，`reason` 写“没想好”，不写信。不重试
 - `send = false`：记 `skip`，`reason` 用模型给的
@@ -658,4 +700,3 @@ M2.3 起：`status` 是 `done` 或 `dropped` 的，稳定度再乘 0.5。目录�
 |---|---|---|
 | `POST /events` | 感应事件（戳一下、摸头），写成 `role=event` 的消息 | 二 |
 | `GET /diary?month=2026-10` / `POST /diary/{id}/reply` | 折角日历与回复 | 二 |
-| 对话里说“这个忘掉吧” | 认出来以后，走和 `POST /memories/{id}/seal` 同一套封页逻辑 | 二 |

@@ -162,6 +162,9 @@ api → export → store
 | `todo.cooldown_hours` | 12 | 他问过一件以后，歇几个小时再带 |
 | `todo.stale_days` | 30 | 超过几天的待续不再每轮带，翻到时说“这是很久以前的状态” |
 | `todo.max_open_in_prompt` | 10 | 写随笔时给小模型看几件还没完结的事 |
+| `forget.enabled` | true | 对话里说“忘掉吧”就封页。不多调模型 |
+| `forget.recent_memories` | 5 | 写随笔时，除了递过的往事，再给小模型看这一卷最近几条随笔供挑选 |
+| `anniversary.enabled` | true | 纪年：写随笔时记下重要的日子，到了那天他记得。不多调模型 |
 | `wake.enabled` | true | 来信：他会不会先来找你。关掉就不看、不写、不多花钱 |
 | `wake.timezone` | 空 | 判断白天、今天用的时区，例如 `Asia/Shanghai`；空 = 服务器本地时间 |
 | `wake.active_hours` | `09:00-23:00` | 只在这段时间里看要不要写 |

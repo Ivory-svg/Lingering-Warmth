@@ -123,6 +123,23 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 
 `GET /export` 导出这张表。
 
+### anniversaries：纪年（迁移 007）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | INTEGER PK | |
+| month_day | TEXT NOT NULL | `MM-DD`，例如 `03-14` |
+| year | INTEGER | 知道是哪一年就填，用来算“第几年”；不知道为空 |
+| yearly | INTEGER NOT NULL DEFAULT 1 | 1 = 每年都过；0 = 只有那一次（这时 `year` 必填） |
+| title | TEXT NOT NULL | 例如“第一次见面”“阿栀的生日” |
+| source | TEXT NOT NULL | `conversation` 随笔里认出来的 / `manual` 玩家自己加的；以后加 `keepsake` |
+| memory_id | INTEGER | 从哪条随笔认出来的，→ memories.id；手动加的为空 |
+| active | INTEGER NOT NULL DEFAULT 1 | 0 = 停用，不再提醒 |
+| created_at | TEXT NOT NULL | |
+| updated_at | TEXT NOT NULL | |
+
+纪年不是记忆，可以改，但没有删除接口：不要了就停用。`GET /export` 导出这张表。
+
 ### handoffs：续写（交接）
 
 | 字段 | 类型 | 说明 |
@@ -164,7 +181,6 @@ id 一律用 `INTEGER PRIMARY KEY`。JSON 字段存 TEXT。
 | diary_replies | 玩家在折角下的回复 | entry_id, content, created_at, read_by_ai_at |
 | keepsakes | 夹页 | name, aliases(JSON), first_seen_at |
 | keepsake_links | 夹页 ↔ 记忆 | keepsake_id, memory_id |
-| anniversaries | 纪年 | date(MM-DD 或完整日期), title, source(`manual`/`keepsake`), memory_id |
 | dream_books | 留白合集，按月一本 | month(YYYY-MM), created_at, updated_at |
 | dreams | 留白合集里的一个梦（追加，不单独翻阅） | book_id, created_at, based_on_memory_id, content, used_in_wake |
 | player_days | 玩家的日子（经期等，默认关闭） | date, kind, note, source |
