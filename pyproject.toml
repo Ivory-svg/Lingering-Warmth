@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "lingering-warmth"
 version = "0.1.0"
 description = "余温：让角色记住你们共同经历的记忆系统"
+license = { file = "LICENSE" }
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
