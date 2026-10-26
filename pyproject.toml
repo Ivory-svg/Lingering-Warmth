@@ -21,6 +21,7 @@ test = ["pytest>=8,<10"]
 
 [project.scripts]
 yuwen = "yuwen.api:run"
+yuwen-demo = "yuwen.demo:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/yuwen"]
