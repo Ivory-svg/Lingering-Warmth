@@ -16,7 +16,7 @@ class FakeLLM:
         return self.result
 
 
-def setup(tmp_path):
+def setup(tmp_path, user_text="那个忘掉吧"):
     store = Store(tmp_path / "test.db")
     store.initialize()
     session = store.create_session()
@@ -29,7 +29,7 @@ def setup(tmp_path):
         emotion_text="担心", certainty=0.9, source_message_ids=[], session_id=session,
         status="open", status_as_of="2026-10-20T11:00:00+08:00",
     )
-    user = store.add_message(session, "user", "那个忘掉吧", created_at="2026-10-21T10:00:00+08:00")
+    user = store.add_message(session, "user", user_text, created_at="2026-10-21T10:00:00+08:00")
     reply = store.add_message(
         session, "assistant", "好，不提了", created_at="2026-10-21T10:01:00+08:00",
         meta={"surfaced_memory_ids": [prior]},
@@ -38,7 +38,7 @@ def setup(tmp_path):
 
 
 def test_forget_this_batch_seals_history_skips_new_todos_and_resolves(tmp_path):
-    store, prior, todo, user, reply = setup(tmp_path)
+    store, prior, todo, user, reply = setup(tmp_path, "牙看完了，那个忘掉吧")
     llm = FakeLLM(json.dumps({
         "summary": "说了心事", "emotion_text": "难过", "certainty": 0.9,
         "used_memory_ids": [prior],

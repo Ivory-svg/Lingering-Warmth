@@ -132,20 +132,31 @@ def test_inflow_writes_at_most_three_todos_with_batch_time_and_vectors(tmp_path:
     store = Store(tmp_path / "test.db")
     store.initialize()
     session_id = store.create_session()
-    user_id = store.add_message(session_id, "user", "下周去看牙", created_at="2026-10-20T10:00:00+08:00")
+    user_id = store.add_message(
+        session_id, "user", "下周去看牙，明天去取快递，周末陪你看电影，下个月去体检",
+        created_at="2026-10-20T10:00:00+08:00",
+    )
     assistant_id = store.add_message(session_id, "assistant", "我记着。", created_at="2026-10-20T10:01:00+08:00")
     llm = ReplyLLM(json.dumps({
         "summary": "阿栀说下周去看牙", "emotion_text": "平静", "certainty": 0.8,
-        "todos": [{"summary": f"待续 {number}", "quote": f"原话 {number}"} for number in range(4)],
+        "todos": [
+            {"summary": summary, "quote": quote}
+            for summary, quote in [
+                ("阿栀下周去看牙", "下周去看牙"),
+                ("阿栀明天去取快递", "明天去取快递"),
+                ("阿栀周末陪你看电影", "周末陪你看电影"),
+                ("阿栀下个月去体检", "下个月去体检"),
+            ]
+        ],
     }, ensure_ascii=False))
     fake = FakeEmbedding()
     embedder = MemoryEmbedder(store, fake, EmbeddingConfig("https://fake.test"))
 
-    asyncio.run(InflowService(store, llm, embedder=embedder).process_turn(user_id, assistant_id))
+    asyncio.run(InflowService(store, llm, embedder=embedder, player_name="阿栀").process_turn(user_id, assistant_id))
 
     rows = store.list_table("memories")
     assert len(rows) == 4
-    assert [row["summary"] for row in rows[1:]] == ["待续 0", "待续 1", "待续 2"]
+    assert [row["summary"] for row in rows[1:]] == ["阿栀下周去看牙", "阿栀明天去取快递", "阿栀周末陪你看电影"]
     for row in rows[1:]:
         assert row["kind"] == "turn" and row["status"] == "open"
         assert row["status_as_of"] == row["happened_at"] == "2026-10-20T10:01:00+08:00"
@@ -175,7 +186,7 @@ def test_inflow_resolves_only_listed_open_todos_and_saves_history(tmp_path: Path
         ],
     }, ensure_ascii=False))
 
-    asyncio.run(InflowService(store, llm).process_turn(user_id, assistant_id))
+    asyncio.run(InflowService(store, llm, player_name="阿栀").process_turn(user_id, assistant_id))
 
     assert f"[#{open_id}]" in llm.messages[0][0]["content"]
     row = store.get_memory(open_id)

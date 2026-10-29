@@ -20,7 +20,7 @@ def test_inflow_anniversaries_validate_limit_and_dedupe(tmp_path):
     store = Store(tmp_path / "db")
     store.initialize()
     session = store.create_session()
-    user = store.add_message(session, "user", "记下这些日子")
+    user = store.add_message(session, "user", "2月29日是闰日，记住吧")
     reply = store.add_message(session, "assistant", "记下了")
     llm = FakeLLM({
         "summary": "说了纪年", "emotion_text": "开心", "certainty": 0.9,
@@ -37,7 +37,7 @@ def test_inflow_anniversaries_validate_limit_and_dedupe(tmp_path):
     assert rows[0]["memory_id"] == memory_id
     assert rows[0]["source"] == "conversation"
 
-    user2 = store.add_message(session, "user", "还有两天")
+    user2 = store.add_message(session, "user", "再说一次，2月29日是闰日")
     reply2 = store.add_message(session, "assistant", "嗯")
     llm.data["anniversaries"] = [
         {"date": "02-29", "title": "闰日", "yearly": True},
@@ -60,7 +60,7 @@ def test_inflow_anniversaries_once_and_disabled(tmp_path):
     asyncio.run(InflowService(store, llm, anniversary=AnniversaryConfig(False)).process_turn(user, reply))
     assert '"anniversaries"' not in llm.prompt
     assert store.list_anniversaries() == []
-    user2 = store.add_message(session, "user", "再说一次")
+    user2 = store.add_message(session, "user", "2026年11月12日一起去演唱会")
     reply2 = store.add_message(session, "assistant", "好")
     asyncio.run(InflowService(store, llm).process_turn(user2, reply2))
     assert store.list_anniversaries()[0]["year"] == 2026
@@ -71,7 +71,7 @@ def test_inflow_anniversaries_only_first_two_valid_entries(tmp_path):
     store = Store(tmp_path / "db")
     store.initialize()
     session = store.create_session()
-    user = store.add_message(session, "user", "三个日子")
+    user = store.add_message(session, "user", "1月1日是元旦，2026年11月12日有约定，12月25日也有事")
     reply = store.add_message(session, "assistant", "记住了")
     llm = FakeLLM({
         "summary": "说了三个日子", "emotion_text": "开心", "certainty": 0.9,
